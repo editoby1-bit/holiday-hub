@@ -759,3 +759,77 @@ a { color:inherit; text-decoration:none; }
 .plan-task-title { font-size:.86rem; font-weight:600; }
 .plan-task-sub { font-size:.72rem; color:var(--text-dim); margin-top:.1rem; }
 .plan-task-go { font-size:.75rem; font-weight:700; color:var(--coral); }
+
+/* ══════════════════════════════
+   STUDY LIBRARY
+══════════════════════════════ */
+.fi-library { background: rgba(124,58,237,.10); }
+
+.library-tabs {
+  display:flex; gap:.5rem;
+  padding: .9rem 1.25rem 0;
+}
+.lib-tab {
+  flex:1; padding:.6rem .5rem;
+  border-radius: var(--r-m);
+  border: 1px solid var(--border);
+  background: var(--white);
+  font-size:.8rem; font-weight:600; color:var(--text-dim);
+  text-align:center;
+}
+.lib-tab.active { background: var(--ink); border-color:var(--ink); color:var(--white); }
+
+.lib-empty { text-align:center; padding: 3rem 1rem; color: var(--text-dim); font-size:.88rem; }
+
+/* Flashcards */
+.flashcard-progress { text-align:center; font-size:.75rem; color:var(--text-dim); margin-bottom:.75rem; text-transform:uppercase; letter-spacing:.04em; }
+.flashcard-stage { perspective: 1000px; margin-bottom: 1.25rem; }
+.flashcard {
+  position:relative; width:100%; min-height:220px;
+  cursor:pointer;
+}
+.flashcard-inner {
+  position:relative; width:100%; height:100%; min-height:220px;
+  transition: transform .5s; transform-style: preserve-3d;
+}
+.flashcard.flipped .flashcard-inner { transform: rotateY(180deg); }
+.flashcard-face {
+  position:absolute; inset:0;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding: 1.5rem 1.25rem;
+  border-radius: var(--r-l);
+  backface-visibility: hidden;
+  text-align:center;
+  box-shadow: var(--sh-m);
+}
+.flashcard-front { background: var(--white); border:1.5px solid var(--border); }
+.flashcard-back { background: var(--ink); color: var(--white); transform: rotateY(180deg); }
+.flashcard-label { font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; opacity:.55; margin-bottom:.6rem; }
+.flashcard-term { font-family: var(--serif); font-size:1.3rem; font-weight:700; }
+.flashcard-def { font-size:.95rem; line-height:1.55; }
+.flashcard-hint { font-size:.7rem; color:var(--text-dim); text-align:center; margin-bottom:1rem; }
+
+.flashcard-nav-row { display:flex; gap:.6rem; }
+.flashcard-nav-row .btn { flex:1; }
+.flashcard-shuffle-btn { display:block; width:100%; text-align:center; margin-top:.6rem; font-size:.78rem; color: var(--text-dim); font-weight:600; }
+
+/* Formula sheets */
+.formula-card {
+  background: var(--white); border:1px solid var(--border-w); border-radius: var(--r-m);
+  padding: 1rem 1.1rem; margin-bottom:.7rem; box-shadow: var(--sh-s);
+}
+.formula-title { font-size:.85rem; font-weight:700; margin-bottom:.4rem; }
+.formula-expr {
+  font-family: var(--serif); font-size:1.15rem; font-weight:600;
+  color: var(--coral); background: var(--coral-pale);
+  padding:.5rem .75rem; border-radius: var(--r-s); display:inline-block; margin-bottom:.4rem;
+}
+.formula-note { font-size:.78rem; color:var(--text-dim); line-height:1.4; }
+
+/* Concept notes */
+.note-card {
+  background: var(--cream-w); border-left:3px solid var(--gold); border-radius: 0 var(--r-m) var(--r-m) 0;
+  padding: 1rem 1.1rem; margin-bottom:.8rem;
+}
+.note-topic { font-family: var(--serif); font-size:1rem; font-weight:700; margin-bottom:.4rem; }
+.note-summary { font-size:.86rem; line-height:1.6; color: var(--text-mid); }

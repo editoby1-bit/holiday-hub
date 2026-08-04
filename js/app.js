@@ -293,6 +293,7 @@
     else if (action === 'friend-study') openQuizChallenge(true);
     else if (action === 'project') openProjectHelper();
     else if (action === 'games') openSubjectPicker('game');
+    else if (action === 'library') openSubjectPicker('library');
   }
 
   /* ────────────────────────────────
@@ -311,7 +312,7 @@
     if (last && last.category === S.category && CONTENT_MANIFEST[S.category].subjects.includes(last.subject)) {
       const meta = subjectMeta(last.subject);
       const label = SUBJECT_LABELS[last.subject] || last.subject;
-      const modeLabel = { revision: 'Study Mode', quiz: 'Quiz', game: 'Speed Round' }[last.mode] || 'practice';
+      const modeLabel = { revision: 'Study Mode', quiz: 'Quiz', game: 'Speed Round', library: 'Study Library' }[last.mode] || 'practice';
       cards.push(`
         <button class="nudge-card nudge-continue" data-nudge="continue">
           <span class="nudge-icon">${meta.icon}</span>
@@ -339,6 +340,7 @@
       ensureUser(() => {
         if (last.mode === 'revision') startRevision(last.subject);
         else if (last.mode === 'game') startSpeedRound(last.subject);
+        else if (last.mode === 'library') openLibrary(last.subject);
         else startQuizSetup(last.subject);
       });
     });
@@ -534,24 +536,37 @@
   /* ────────────────────────────────
      SUBJECT PICKER
   ──────────────────────────────── */
+  function getResourceBank(cat) {
+    return cat === 'junior' ? JUNIOR_RESOURCES : SENIOR_RESOURCES;
+  }
+
   function openSubjectPicker(mode) {
     S.mode = mode;
     const manifest = CONTENT_MANIFEST[S.category];
     const bank = getBank(S.category);
-    const titles = { quiz: 'Quiz — pick a subject', revision: 'Revision — pick a subject', game: '🎮 Speed Round — pick a subject' };
+    const resBank = getResourceBank(S.category);
+    const titles = { quiz: 'Quiz — pick a subject', revision: 'Revision — pick a subject', game: '🎮 Speed Round — pick a subject', library: '📚 Study Library — pick a subject' };
     document.getElementById('subjectScreenTitle').textContent = titles[mode] || 'Pick a subject';
 
     const list = document.getElementById('subjectList');
     list.innerHTML = manifest.subjects.map(key => {
-      const subj = bank[key];
-      const count = subj && subj.objective ? subj.objective.length : 0;
       const label = SUBJECT_LABELS[key] || key;
       const meta = subjectMeta(key);
+      let countText;
+      if (mode === 'library') {
+        const r = resBank[key] || { flashcards: [], formulas: [], notes: [] };
+        const total = (r.flashcards || []).length + (r.formulas || []).length + (r.notes || []).length;
+        countText = total ? `${total} resources` : 'Coming soon';
+      } else {
+        const subj = bank[key];
+        const count = subj && subj.objective ? subj.objective.length : 0;
+        countText = `${count} questions`;
+      }
       return `<button class="subject-row" data-subject="${key}">
         <div class="subject-row-icon" style="background:${meta.color}1a; color:${meta.color};">${meta.icon}</div>
         <div class="subject-row-text">
           <div class="subject-row-name">${label}</div>
-          <div class="subject-row-count">${count} questions</div>
+          <div class="subject-row-count">${countText}</div>
         </div>
         <span class="subject-row-arrow">→</span>
       </button>`;
@@ -562,6 +577,7 @@
         S.subject = row.dataset.subject;
         if (mode === 'quiz') startQuizSetup(S.subject);
         else if (mode === 'game') startSpeedRound(S.subject);
+        else if (mode === 'library') openLibrary(S.subject);
         else startRevision(S.subject);
       });
     });
@@ -852,6 +868,122 @@
       </div>`;
     document.getElementById('revwPrev').addEventListener('click', () => { S.idx--; renderReviewQuestion(); });
     document.getElementById('revwNext').addEventListener('click', () => { S.idx++; renderReviewQuestion(); });
+  }
+
+  /* ────────────────────────────────
+     STUDY LIBRARY
+     Non-past-question resources: Flashcards (flip to reveal), Formula
+     Sheets, and Concept Notes. Fully offline — static content, no API
+     calls. Only tabs with actual content for the subject are shown.
+  ──────────────────────────────── */
+  let LIB = { subject: null, tab: null, cards: [], idx: 0, flipped: false };
+
+  function openLibrary(subjectKey) {
+    const resBank = getResourceBank(S.category);
+    const res = resBank[subjectKey] || { flashcards: [], formulas: [], notes: [] };
+    const tabs = [];
+    if ((res.flashcards || []).length) tabs.push('flashcards');
+    if ((res.formulas || []).length) tabs.push('formulas');
+    if ((res.notes || []).length) tabs.push('notes');
+
+    if (!tabs.length) {
+      showToast("Study Library content for this subject isn't ready yet — check back soon.");
+      return;
+    }
+
+    LIB = { subject: subjectKey, tab: tabs[0], cards: [], idx: 0, flipped: false };
+    setLastActivity(S.category, subjectKey, 'library');
+    document.getElementById('libraryTitle').textContent = SUBJECT_LABELS[subjectKey] || subjectKey;
+
+    const tabLabels = { flashcards: '🗂 Flashcards', formulas: '∑ Formulas', notes: '📝 Notes' };
+    document.getElementById('libraryTabs').innerHTML = tabs.map(t =>
+      `<button class="lib-tab ${t === LIB.tab ? 'active' : ''}" data-tab="${t}">${tabLabels[t]}</button>`).join('');
+    document.querySelectorAll('.lib-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        LIB.tab = btn.dataset.tab;
+        LIB.idx = 0; LIB.flipped = false;
+        document.querySelectorAll('.lib-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === LIB.tab));
+        renderLibraryContent();
+      });
+    });
+
+    renderLibraryContent();
+    showScreen('libraryScreen');
+  }
+
+  function renderLibraryContent() {
+    const resBank = getResourceBank(S.category);
+    const res = resBank[LIB.subject] || {};
+    const body = document.getElementById('libraryBody');
+
+    if (LIB.tab === 'flashcards') {
+      renderFlashcards(body, res.flashcards || []);
+    } else if (LIB.tab === 'formulas') {
+      renderFormulas(body, res.formulas || []);
+    } else if (LIB.tab === 'notes') {
+      renderNotes(body, res.notes || []);
+    }
+  }
+
+  function renderFlashcards(body, cards) {
+    if (!LIB.cards.length) LIB.cards = cards.slice();
+    if (!LIB.cards.length) { body.innerHTML = '<div class="lib-empty">No flashcards for this subject yet.</div>'; return; }
+    const card = LIB.cards[LIB.idx];
+
+    body.innerHTML = `
+      <div class="flashcard-progress">Card ${LIB.idx + 1} of ${LIB.cards.length}</div>
+      <div class="flashcard-hint">Tap the card to flip it</div>
+      <div class="flashcard-stage">
+        <div class="flashcard ${LIB.flipped ? 'flipped' : ''}" id="flashcardEl">
+          <div class="flashcard-inner">
+            <div class="flashcard-face flashcard-front">
+              <div class="flashcard-label">Term</div>
+              <div class="flashcard-term">${card.term}</div>
+            </div>
+            <div class="flashcard-face flashcard-back">
+              <div class="flashcard-label">Definition</div>
+              <div class="flashcard-def">${card.definition}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flashcard-nav-row">
+        <button class="btn btn-ghost" id="flPrev" ${LIB.idx === 0 ? 'disabled' : ''}>← Previous</button>
+        <button class="btn btn-primary" id="flNext" ${LIB.idx === LIB.cards.length - 1 ? 'disabled' : ''}>Next →</button>
+      </div>
+      <button class="flashcard-shuffle-btn" id="flShuffle">🔀 Shuffle cards</button>
+    `;
+
+    document.getElementById('flashcardEl').addEventListener('click', () => {
+      LIB.flipped = !LIB.flipped;
+      document.getElementById('flashcardEl').classList.toggle('flipped', LIB.flipped);
+    });
+    document.getElementById('flPrev').addEventListener('click', () => { LIB.idx--; LIB.flipped = false; renderFlashcards(body, cards); });
+    document.getElementById('flNext').addEventListener('click', () => { LIB.idx++; LIB.flipped = false; renderFlashcards(body, cards); });
+    document.getElementById('flShuffle').addEventListener('click', () => {
+      shuffleArray(LIB.cards); LIB.idx = 0; LIB.flipped = false;
+      showToast('Shuffled!', 1200);
+      renderFlashcards(body, cards);
+    });
+  }
+
+  function renderFormulas(body, formulas) {
+    if (!formulas.length) { body.innerHTML = '<div class="lib-empty">No formula sheet for this subject yet.</div>'; return; }
+    body.innerHTML = formulas.map(f => `
+      <div class="formula-card">
+        <div class="formula-title">${f.title}</div>
+        <div class="formula-expr">${f.formula}</div>
+        <div class="formula-note">${f.note || ''}</div>
+      </div>`).join('');
+  }
+
+  function renderNotes(body, notes) {
+    if (!notes.length) { body.innerHTML = '<div class="lib-empty">No concept notes for this subject yet.</div>'; return; }
+    body.innerHTML = notes.map(n => `
+      <div class="note-card">
+        <div class="note-topic">${n.topic}</div>
+        <div class="note-summary">${n.summary}</div>
+      </div>`).join('');
   }
 
   /* ────────────────────────────────

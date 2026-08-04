@@ -133,6 +133,30 @@ that gap:
   offers a different angle — simpler analogy or different approach — inline, without leaving
   Study Mode.
 
+## New in this update — Study Library (non-past-question resources)
+
+A new pillar, fully offline (no API calls, static content), addressing feedback that the app
+should feel like more than a quiz bank:
+
+- **Flashcards** — term/definition pairs, tap to flip, shuffle, prev/next navigation.
+- **Formula Sheets** — condensed formula + note per entry, for subjects where that's relevant.
+- **Concept Notes** — short plain-English topic summaries for subjects that benefit more from
+  explanation than formulas.
+
+Only the tabs with actual content for a subject are shown (e.g. Mathematics shows Flashcards +
+Formulas but no Notes tab; Government shows Flashcards + Notes but no Formulas tab). If a
+subject has nothing yet, tapping it shows "content isn't ready yet" instead of a broken screen.
+
+**Current content coverage** (seed set — same growable philosophy as the question banks):
+- Full coverage (all relevant types): Mathematics, English, Biology, Chemistry, Physics,
+  Economics, Government
+- Partial: Civic Education, CRS, Geography (flashcards only or flashcards + light notes)
+- Not yet seeded: Literature, Accounting, Commerce, Marketing, Animal Husbandry (senior);
+  Basic Technology, Social Studies, Civic Education (junior)
+
+Adding more is a content-only change — drop entries into `data/senior/senior-resources.js` or
+`data/junior/junior-resources.js` under the right subject key, no app logic changes needed.
+
 **Open items before this is fully launch-ready:**
 - **Holiday end date**: the countdown in `js/app.js` (`HOLIDAY_END`) is set to a placeholder
   date (Sept 14, 2026) — confirm the actual resumption date and I'll update it.

@@ -70,6 +70,12 @@
         <p>Browse past questions with full explanations, no timer.</p>
       </button>
 
+      <button class="feature-card" data-action="library">
+        <div class="feature-icon fi-library">📚</div>
+        <h3>Study Library</h3>
+        <p>Flashcards, formula sheets, and concept notes — no quiz.</p>
+      </button>
+
       <button class="feature-card" data-action="quiz">
         <div class="feature-icon fi-quiz">✍️</div>
         <h3>Quiz Me</h3>
@@ -179,6 +185,16 @@
     <div class="container" id="planBody" style="padding-top:1.25rem; padding-bottom:2rem;"></div>
   </section>
 
+  <!-- ════════════════ STUDY LIBRARY ════════════════ -->
+  <section id="libraryScreen" class="screen">
+    <div class="topbar">
+      <button class="back-btn" data-back="subject">←</button>
+      <h2 class="topbar-title" id="libraryTitle">Study Library</h2>
+    </div>
+    <div class="library-tabs" id="libraryTabs"></div>
+    <div class="container" id="libraryBody" style="padding-top:1.25rem; padding-bottom:2rem;"></div>
+  </section>
+
   <!-- ════════════════ COMMUNITY QUIZ / CHALLENGE MODAL ════════════════ -->
   <div id="quizChallengeModal" class="overlay hidden">
     <div class="sheet" style="position:relative;">
@@ -284,7 +300,9 @@
 </div>
 
 <script src="data/senior/senior-bank.js"></script>
+<script src="data/senior/senior-resources.js"></script>
 <script src="data/junior/junior-bank.js"></script>
+<script src="data/junior/junior-resources.js"></script>
 <script src="data/manifest.js"></script>
 <script src="js/app.js"></script>
 </body>
