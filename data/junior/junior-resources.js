@@ -50,7 +50,44 @@ const JUNIOR_RESOURCES = {
     ],
   },
 
-  basic_technology: { flashcards: [], formulas: [], notes: [] },
-  social_studies: { flashcards: [], formulas: [], notes: [] },
-  civic_education: { flashcards: [], formulas: [], notes: [] },
+  basic_technology: {
+    flashcards: [
+      { term: "Technology", definition: "The application of scientific knowledge to solve practical, everyday problems." },
+      { term: "Tool", definition: "A device used to carry out a specific task, e.g. a hammer for driving nails." },
+      { term: "Safety Precaution", definition: "An action taken in advance to prevent accidents or injury while working." },
+      { term: "Conductor", definition: "A material that allows electricity or heat to pass through it easily, e.g. copper." },
+      { term: "Insulator", definition: "A material that does not allow electricity or heat to pass through easily, e.g. rubber." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "Workshop Safety", summary: "Always wear appropriate protective gear (goggles, gloves, apron) before using tools. Keep the work area tidy, know where tools belong, and never rush — most workshop accidents happen from carelessness, not from the tools themselves." },
+    ],
+  },
+
+  social_studies: {
+    flashcards: [
+      { term: "Culture", definition: "The customs, beliefs, values, and way of life shared by a group of people." },
+      { term: "Community", definition: "A group of people living in the same area or sharing common interests." },
+      { term: "Peer Pressure", definition: "The influence exerted by people of similar age or status to behave in a certain way." },
+      { term: "Population", definition: "The total number of people living in a particular area." },
+      { term: "Drug Abuse", definition: "The harmful or excessive use of drugs, often without medical justification." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "Good Study Habits", summary: "Making a realistic timetable, studying in a quiet space, taking short breaks, and reviewing notes regularly all help retention far more than last-minute cramming. Group discussion can also help clarify difficult topics." },
+    ],
+  },
+
+  civic_education: {
+    flashcards: [
+      { term: "Citizen", definition: "A legally recognised member of a country or state, with rights and responsibilities." },
+      { term: "Democracy", definition: "A system of government where power belongs to the people, directly or through elected representatives." },
+      { term: "Rights", definition: "Entitlements or freedoms that belong to every citizen, protected by law." },
+      { term: "Duty", definition: "A responsibility or obligation a citizen is expected to fulfil, e.g. obeying the law." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "Rights and Duties Go Together", summary: "Every right a citizen enjoys comes with a matching responsibility. For example, the right to a clean environment comes with a duty not to litter. A functioning society depends on citizens exercising both, not just claiming rights." },
+    ],
+  },
 };

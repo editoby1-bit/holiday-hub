@@ -147,12 +147,15 @@ Only the tabs with actual content for a subject are shown (e.g. Mathematics show
 Formulas but no Notes tab; Government shows Flashcards + Notes but no Formulas tab). If a
 subject has nothing yet, tapping it shows "content isn't ready yet" instead of a broken screen.
 
-**Current content coverage** (seed set — same growable philosophy as the question banks):
-- Full coverage (all relevant types): Mathematics, English, Biology, Chemistry, Physics,
-  Economics, Government
-- Partial: Civic Education, CRS, Geography (flashcards only or flashcards + light notes)
-- Not yet seeded: Literature, Accounting, Commerce, Marketing, Animal Husbandry (senior);
-  Basic Technology, Social Studies, Civic Education (junior)
+**Current content coverage** (updated):
+- **All 15 senior subjects now have real Study Library content** — no more empty subjects.
+  Full three-type coverage (flashcards + formulas + notes) on the STEM/heavy-calculation
+  subjects (Math, Chemistry, Physics, Accounting, Economics); flashcards + notes on the
+  discussion-heavy subjects (English, Government, Literature, Commerce, Marketing, Civic Ed,
+  Animal Husbandry); flashcards only on CRS and Geography (formulas don't apply, notes can
+  come later).
+- **Junior**: Mathematics, English, Basic Science, Basic Technology, Social Studies, and Civic
+  Education all now have starter content — every junior subject in the manifest has something.
 
 Adding more is a content-only change — drop entries into `data/senior/senior-resources.js` or
 `data/junior/junior-resources.js` under the right subject key, no app logic changes needed.

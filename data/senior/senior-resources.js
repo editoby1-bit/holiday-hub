@@ -208,9 +208,96 @@ const SENIOR_RESOURCES = {
     notes: [],
   },
 
-  literature: { flashcards: [], formulas: [], notes: [] },
-  accounting: { flashcards: [], formulas: [], notes: [] },
-  commerce: { flashcards: [], formulas: [], notes: [] },
-  marketing: { flashcards: [], formulas: [], notes: [] },
-  animal_husbandry: { flashcards: [], formulas: [], notes: [] },
+  literature: {
+    flashcards: [
+      { term: "Protagonist", definition: "The main character in a story, around whom the plot centres." },
+      { term: "Antagonist", definition: "The character or force that opposes the protagonist, creating conflict." },
+      { term: "Plot", definition: "The sequence of events that make up a story, usually including a conflict and resolution." },
+      { term: "Theme", definition: "The central idea, message, or underlying meaning explored in a literary work." },
+      { term: "Setting", definition: "The time and place in which a story's events occur." },
+      { term: "Tone", definition: "The author's attitude toward the subject or audience, conveyed through word choice and style." },
+      { term: "Irony", definition: "A contrast between what is expected and what actually happens, or between what is said and what is meant." },
+      { term: "Soliloquy", definition: "A speech in a play where a character speaks their thoughts aloud, alone on stage, revealing inner feelings to the audience." },
+      { term: "Foreshadowing", definition: "A hint or clue about events that will happen later in the story." },
+      { term: "Stanza", definition: "A grouped set of lines in a poem, similar to a paragraph in prose." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "Analysing a Poem", summary: "Look at what the poem is literally saying first, then consider its structure (stanzas, rhyme, rhythm), the poetic devices used (simile, metaphor, imagery), and finally what feeling or message the poet is building toward. Always support points with direct reference to the text." },
+      { topic: "Analysing a Prose Text", summary: "Focus on character development, plot structure, setting, and theme. Ask: what does the author want the reader to feel or understand? Pay attention to how the writer builds tension or resolves conflict — these are common essay-question angles." },
+      { topic: "Approaching Drama", summary: "Beyond plot, drama exam questions often focus on character motivation, stage directions, dialogue, and how conflict drives the action. Soliloquies and asides are frequently examined for what they reveal that other characters don't know." },
+    ],
+  },
+
+  accounting: {
+    flashcards: [
+      { term: "Asset", definition: "Something owned by a business that has value, e.g. cash, equipment, or property." },
+      { term: "Liability", definition: "Something a business owes to others, e.g. loans or unpaid bills." },
+      { term: "Capital", definition: "The owner's investment in the business — assets minus liabilities." },
+      { term: "Double Entry", definition: "The principle that every transaction affects at least two accounts, keeping the books balanced." },
+      { term: "Debit", definition: "An entry on the left side of an account, increasing assets/expenses or decreasing liabilities/income." },
+      { term: "Credit", definition: "An entry on the right side of an account, increasing liabilities/income or decreasing assets/expenses." },
+      { term: "Trial Balance", definition: "A statement listing all account balances to check that total debits equal total credits." },
+      { term: "Depreciation", definition: "The reduction in value of an asset over time due to wear, age, or obsolescence." },
+      { term: "Ledger", definition: "A book or record containing all the accounts of a business." },
+      { term: "Balance Sheet", definition: "A financial statement showing a business's assets, liabilities, and capital at a specific point in time." },
+    ],
+    formulas: [
+      { title: "Accounting Equation", formula: "Assets = Liabilities + Capital", note: "The books must always balance around this." },
+      { title: "Gross Profit", formula: "Sales − Cost of Goods Sold", note: "Profit before deducting expenses." },
+      { title: "Net Profit", formula: "Gross Profit − Expenses", note: "The final profit figure after all costs." },
+      { title: "Straight-Line Depreciation", formula: "(Cost − Residual Value) ÷ Useful Life", note: "Gives equal depreciation each year." },
+    ],
+    notes: [
+      { topic: "The Accounting Cycle", summary: "Transactions are first recorded in a journal, then posted to ledger accounts, summarised in a trial balance, and finally used to prepare the financial statements (trading, profit & loss account, and balance sheet). Each step checks the accuracy of the one before it." },
+    ],
+  },
+
+  commerce: {
+    flashcards: [
+      { term: "Trade", definition: "The buying and selling of goods and services between parties." },
+      { term: "Home Trade", definition: "Trade that takes place within the boundaries of one country." },
+      { term: "Foreign Trade", definition: "Trade between different countries, including import and export." },
+      { term: "Wholesaler", definition: "A trader who buys goods in bulk from producers and sells in smaller quantities to retailers." },
+      { term: "Retailer", definition: "A trader who buys from wholesalers or producers and sells directly to final consumers." },
+      { term: "Insurance", definition: "A contract where one party pays a premium to be compensated for specified future losses." },
+      { term: "Warehousing", definition: "The storage of goods before they are needed for sale or distribution." },
+      { term: "E-commerce", definition: "The buying and selling of goods and services over the internet." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "Channels of Distribution", summary: "Goods typically move from producer to wholesaler to retailer to consumer, though some producers sell directly to retailers or consumers to cut costs. The right channel depends on the product, market size, and cost considerations." },
+      { topic: "Aids to Trade", summary: "Trade depends on supporting services: transport (moving goods), insurance (covering risk), banking (financing transactions), warehousing (storage), and advertising (creating demand). These are often called 'aids to trade' in exams." },
+    ],
+  },
+
+  marketing: {
+    flashcards: [
+      { term: "Marketing Mix", definition: "The combination of Product, Price, Place, and Promotion (the 4 Ps) used to market a product." },
+      { term: "Market Segmentation", definition: "Dividing a market into distinct groups of buyers with similar needs or characteristics." },
+      { term: "Branding", definition: "Creating a distinct name, symbol, or design that identifies and differentiates a product." },
+      { term: "Target Market", definition: "The specific group of consumers a business aims its products and marketing efforts at." },
+      { term: "Market Research", definition: "The systematic gathering of information about customers and markets to guide business decisions." },
+      { term: "Product Life Cycle", definition: "The stages a product goes through: introduction, growth, maturity, and decline." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "The 4 Ps of Marketing", summary: "Product (what you're selling), Price (what it costs), Place (where/how it's sold), and Promotion (how customers hear about it) work together — a change in one usually requires adjusting the others to keep them consistent with the brand's positioning." },
+    ],
+  },
+
+  animal_husbandry: {
+    flashcards: [
+      { term: "Animal Husbandry", definition: "The branch of agriculture concerned with the care, breeding, and management of farm animals." },
+      { term: "Ruminant", definition: "An animal with a multi-chambered stomach that digests plant food by fermentation, e.g. cattle, goats, sheep." },
+      { term: "Monogastric", definition: "An animal with a single-chambered stomach, e.g. pigs and poultry." },
+      { term: "Colostrum", definition: "The first milk produced after birth, rich in antibodies important for a newborn animal's immunity." },
+      { term: "Culling", definition: "The removal of unproductive or unhealthy animals from a herd or flock." },
+      { term: "Vaccination", definition: "The administration of a vaccine to protect an animal against a specific disease." },
+    ],
+    formulas: [],
+    notes: [
+      { topic: "Housing Systems in Livestock", summary: "Housing protects animals from weather, predators, and disease while making feeding and management easier. Systems vary by animal type — e.g. deep litter and battery cage systems for poultry, paddocks or zero-grazing for cattle — each with different cost and disease-control tradeoffs." },
+    ],
+  },
 };
