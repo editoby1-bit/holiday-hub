@@ -92,6 +92,22 @@ can prepare the same fix as a patch for those two apps' `questions.js` next.
   ring, on-brand with the rest of the app. "Add to Home Screen" now has a proper icon. Also
   added `<link rel="icon">` / `apple-touch-icon` to `index.html`, which weren't there before.
 
+## New in this update — visual differentiation ("everything felt the same")
+
+Feedback was that Revision, Quiz, and Challenge all rendered through the same white-card
+component and felt interchangeable. Fixed by giving each mode its own identity:
+
+- **Subject color/icon system** (`data/manifest.js` → `SUBJECT_META`): every subject now has
+  an accent color + emoji, shown on subject-picker rows and carried into whichever mode you're in.
+- **Revision → "Study Mode"**: calmer parchment-toned card, answers reveal with a small
+  checkmark/strike instead of a hard red/green flash, subject-colored progress bar, feels
+  like reading rather than testing.
+- **Quiz → "Exam Mode"**: OMR-style circular bubble selectors (A)(B)(C)(D) like a real answer
+  sheet, ruled-paper background texture, coral progress bar, numbered question badge.
+- **Challenge → "Duel Mode"**: waiting room and leaderboard now use colored initials-avatars
+  (deterministic per name), "⚔️ Duel Lobby" / "🏆 Duel Results" framing, ready-state highlighting.
+- Speed Round and Project Helper were already distinct (tap-grid game, chat) and untouched.
+
 **Open items before this is fully launch-ready:**
 - **Holiday end date**: the countdown in `js/app.js` (`HOLIDAY_END`) is set to a placeholder
   date (Sept 14, 2026) — confirm the actual resumption date and I'll update it.

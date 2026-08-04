@@ -259,8 +259,10 @@
       const subj = bank[key];
       const count = subj && subj.objective ? subj.objective.length : 0;
       const label = SUBJECT_LABELS[key] || key;
+      const meta = subjectMeta(key);
       return `<button class="subject-row" data-subject="${key}">
-        <div>
+        <div class="subject-row-icon" style="background:${meta.color}1a; color:${meta.color};">${meta.icon}</div>
+        <div class="subject-row-text">
           <div class="subject-row-name">${label}</div>
           <div class="subject-row-count">${count} questions</div>
         </div>
@@ -301,37 +303,43 @@
   function renderRevisionQuestion() {
     const q = S.questions[S.idx];
     const body = document.getElementById('revisionBody');
+    const meta = subjectMeta(S.subject);
     document.getElementById('revisionProgress').textContent = `${S.idx + 1} / ${S.questions.length}`;
+    document.getElementById('studyProgressFill').style.width = `${((S.idx + 1) / S.questions.length) * 100}%`;
+    document.getElementById('studyProgressFill').style.background = meta.color;
 
     const letters = ['A', 'B', 'C', 'D', 'E'];
     body.innerHTML = `
-      <div class="q-card">
-        <div class="q-meta">${q.exam || ''} ${q.year || ''} ${q.level || ''}</div>
-        <div class="q-text">${q.question}</div>
+      <div class="study-card">
+        <span class="study-subject-tag" style="background:${meta.color}1a; color:${meta.color};">${meta.icon} ${SUBJECT_LABELS[S.subject] || S.subject}</span>
+        <div class="study-q-text">${q.question}</div>
         <div id="revOptions">
           ${q.options.map((opt, i) => `
-            <button class="q-option" data-i="${i}">
-              <span class="q-option-letter">${letters[i]}</span>
+            <button class="study-option" data-i="${i}">
+              <span class="study-option-letter">${letters[i]}</span>
               <span>${opt}</span>
             </button>`).join('')}
         </div>
-        <div id="revExplanation" class="q-explanation hidden"></div>
+        <div id="revExplanation" class="study-explanation hidden">
+          <div class="study-explanation-label">Why</div>
+          <div id="revExplanationText"></div>
+        </div>
         <div class="q-nav-row">
           <button class="btn btn-ghost" id="revPrev" ${S.idx === 0 ? 'disabled' : ''}>← Previous</button>
           <button class="btn btn-primary" id="revNext" ${S.idx === S.questions.length - 1 ? 'disabled' : ''}>Next →</button>
         </div>
       </div>`;
 
-    body.querySelectorAll('.q-option').forEach(btn => {
+    body.querySelectorAll('.study-option').forEach(btn => {
       btn.addEventListener('click', () => {
         const i = parseInt(btn.dataset.i, 10);
-        body.querySelectorAll('.q-option').forEach((b, bi) => {
-          b.classList.remove('selected');
-          if (bi === q.answer) b.classList.add('correct');
-          else if (bi === i) b.classList.add('incorrect');
+        body.querySelectorAll('.study-option').forEach((b, bi) => {
+          b.classList.remove('s-correct', 's-incorrect');
+          if (bi === q.answer) b.classList.add('s-correct');
+          else if (bi === i) b.classList.add('s-incorrect');
         });
         const exp = document.getElementById('revExplanation');
-        exp.textContent = q.explanation || 'No explanation available for this question.';
+        document.getElementById('revExplanationText').textContent = q.explanation || 'No explanation available for this question.';
         exp.classList.remove('hidden');
       });
     });
@@ -438,27 +446,30 @@
     const letters = ['A', 'B', 'C', 'D', 'E'];
     const selected = S.answers[S.idx];
 
+    const fill = document.getElementById('examProgressFill');
+    if (fill) fill.style.width = `${((S.idx + 1) / S.questions.length) * 100}%`;
+
     body.innerHTML = `
-      <div class="q-card">
-        <div class="q-meta">Question ${S.idx + 1} of ${S.questions.length}</div>
-        <div class="q-text">${q.question}</div>
-        <div id="quizOptions">
+      <div class="exam-card">
+        <div class="exam-q-number">${S.idx + 1}</div>
+        <div class="exam-q-text">${q.question}</div>
+        <div class="exam-options" id="quizOptions">
           ${q.options.map((opt, i) => `
-            <button class="q-option ${selected === i ? 'selected' : ''}" data-i="${i}">
-              <span class="q-option-letter">${letters[i]}</span>
+            <button class="exam-opt ${selected === i ? 'selected' : ''}" data-i="${i}">
+              <span class="exam-opt-bubble">${letters[i]}</span>
               <span>${opt}</span>
             </button>`).join('')}
         </div>
-        <div class="q-nav-row">
+        <div class="exam-nav-row">
           <button class="btn btn-ghost" id="quizPrev" ${S.idx === 0 ? 'disabled' : ''}>← Previous</button>
           <button class="btn btn-primary" id="quizNext">${S.idx === S.questions.length - 1 ? 'Finish' : 'Next →'}</button>
         </div>
       </div>`;
 
-    body.querySelectorAll('.q-option').forEach(btn => {
+    body.querySelectorAll('.exam-opt').forEach(btn => {
       btn.addEventListener('click', () => {
         S.answers[S.idx] = parseInt(btn.dataset.i, 10);
-        body.querySelectorAll('.q-option').forEach(b => b.classList.remove('selected'));
+        body.querySelectorAll('.exam-opt').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
       });
     });
@@ -514,24 +525,31 @@
     const q = S.questions[S.idx];
     const userAns = S.answers[S.idx];
     const body = document.getElementById('revisionBody');
+    const meta = subjectMeta(S.subject);
     document.getElementById('revisionProgress').textContent = `${S.idx + 1} / ${S.questions.length}`;
+    const progFill = document.getElementById('studyProgressFill');
+    if (progFill) { progFill.style.width = `${((S.idx + 1) / S.questions.length) * 100}%`; progFill.style.background = meta.color; }
     const letters = ['A', 'B', 'C', 'D', 'E'];
 
     body.innerHTML = `
-      <div class="q-card">
-        <div class="q-text">${q.question}</div>
+      <div class="study-card">
+        <span class="study-subject-tag" style="background:${meta.color}1a; color:${meta.color};">${meta.icon} ${SUBJECT_LABELS[S.subject] || S.subject}</span>
+        <div class="study-q-text">${q.question}</div>
         <div>
           ${q.options.map((opt, i) => {
             let cls = '';
-            if (i === q.answer) cls = 'correct';
-            else if (i === userAns) cls = 'incorrect';
-            return `<div class="q-option ${cls}">
-              <span class="q-option-letter">${letters[i]}</span>
+            if (i === q.answer) cls = 's-correct';
+            else if (i === userAns) cls = 's-incorrect';
+            return `<div class="study-option ${cls}">
+              <span class="study-option-letter">${letters[i]}</span>
               <span>${opt}</span>
             </div>`;
           }).join('')}
         </div>
-        <div class="q-explanation">${q.explanation || 'No explanation available.'}</div>
+        <div class="study-explanation">
+          <div class="study-explanation-label">Why</div>
+          <div>${q.explanation || 'No explanation available.'}</div>
+        </div>
         <div class="q-nav-row">
           <button class="btn btn-ghost" id="revwPrev" ${S.idx === 0 ? 'disabled' : ''}>← Previous</button>
           <button class="btn btn-primary" id="revwNext" ${S.idx === S.questions.length - 1 ? 'disabled' : ''}>Next →</button>
@@ -743,6 +761,15 @@
     return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
+  }
+
+  const AVATAR_COLORS = ['#e85d4a', '#2563eb', '#16a34a', '#c9a05c', '#7c3aed', '#0891b2', '#dc2626', '#0d9488'];
+  function avatarFor(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    const color = AVATAR_COLORS[hash % AVATAR_COLORS.length];
+    const initials = name.trim().split(/\s+/).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+    return { color, initials: initials || '?' };
   }
 
   function initChallengeModule() {
@@ -1097,11 +1124,15 @@
   function renderWaitingList(participants) {
     const list = document.getElementById('qcWaitingList');
     const entries = Object.entries(participants || {});
-    list.innerHTML = entries.map(([name, p]) => `
-      <div class="waiting-participant ${p.ready ? 'ready' : ''}">
-        <span><span class="status-dot"></span>${safe(name)}${name === S.currentUser ? ' (you)' : ''}</span>
-        <span>${p.ready ? 'Ready' : 'Waiting'}</span>
-      </div>`).join('') || '<p class="sheet-sub">Waiting for people to join…</p>';
+    list.innerHTML = entries.map(([name, p]) => {
+      const av = avatarFor(name);
+      return `
+      <div class="duel-participant ${p.ready ? 'ready' : ''}">
+        <div class="duel-avatar" style="background:${av.color};">${av.initials}</div>
+        <span class="duel-participant-name">${safe(name)}${name === S.currentUser ? ' (you)' : ''}</span>
+        <span class="duel-status-chip">${p.ready ? '✓ Ready' : 'Waiting…'}</span>
+      </div>`;
+    }).join('') || '<p class="sheet-sub">Waiting for people to join…</p>';
   }
 
   function updateCountdownDisplay(msRemaining) {
@@ -1257,12 +1288,17 @@
     const list = document.getElementById('qcLeaderboard');
     const entries = Object.entries(scores).sort((a, b) => b[1].pct - a[1].pct);
 
-    list.innerHTML = entries.length ? entries.map(([name, data], i) => `
-      <div class="leaderboard-row ${name === S.currentUser ? 'is-me' : ''}">
-        <span class="leaderboard-rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1)}</span>
-        <span class="leaderboard-name">${safe(name)}${name === S.currentUser ? ' (you)' : ''}</span>
-        <span class="leaderboard-score">${data.score}/${data.total} · ${data.pct}%</span>
-      </div>`).join('') : '<p class="sheet-sub">No scores yet — be the first!</p>';
+    list.innerHTML = entries.length ? entries.map(([name, data], i) => {
+      const av = avatarFor(name);
+      const rankBadge = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1);
+      return `
+      <div class="duel-leaderboard-row ${name === S.currentUser ? 'is-me' : ''}">
+        <span class="duel-rank">${rankBadge}</span>
+        <div class="duel-avatar duel-avatar-sm" style="background:${av.color};">${av.initials}</div>
+        <span class="duel-lb-name">${safe(name)}${name === S.currentUser ? ' (you)' : ''}</span>
+        <span class="duel-lb-score">${data.score}/${data.total}<em>${data.pct}%</em></span>
+      </div>`;
+    }).join('') : '<p class="sheet-sub">No scores yet — be the first!</p>';
 
     document.getElementById('quizChallengeModal').classList.remove('hidden');
     showQcPanel('qcResults');

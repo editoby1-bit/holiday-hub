@@ -280,13 +280,19 @@ a { color:inherit; text-decoration:none; }
 ══════════════════════════════ */
 .subject-list { display:flex; flex-direction:column; gap:.6rem; }
 .subject-row {
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 1rem 1.1rem;
+  display:flex; align-items:center; gap:.85rem;
+  padding: .9rem 1.1rem;
   background: var(--white);
   border: 1px solid var(--border-w);
   border-radius: var(--r-m);
   box-shadow: var(--sh-s);
 }
+.subject-row-icon {
+  width:42px; height:42px; border-radius: var(--r-s);
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.25rem; flex-shrink:0;
+}
+.subject-row-text { flex:1; text-align:left; }
 .subject-row-name { font-weight:600; font-size:.95rem; }
 .subject-row-count { font-size:.72rem; color:var(--text-dim); margin-top:.1rem; }
 .subject-row-arrow { color:var(--text-dim); font-size:1.1rem; }
@@ -518,3 +524,142 @@ a { color:inherit; text-decoration:none; }
 .grs-box { flex:1; background:var(--white); border:1px solid var(--border-w); border-radius:var(--r-m); padding:1rem .5rem; text-align:center; box-shadow:var(--sh-s); }
 .grs-box span { display:block; font-family:var(--serif); font-weight:700; font-size:1.3rem; }
 .grs-box label { font-size:.65rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; }
+
+/* ══════════════════════════════
+   STUDY MODE (Revision) — calmer, book-like, not exam-like
+══════════════════════════════ */
+.study-progress-track {
+  height: 3px; background: var(--border-w);
+}
+.study-progress-fill {
+  height: 100%; background: var(--gold);
+  transition: width .25s ease;
+}
+.study-card {
+  background: var(--cream-w);
+  border: 1px solid var(--border-w);
+  border-radius: var(--r-l);
+  padding: 1.25rem 1.1rem 1.5rem;
+  position: relative;
+}
+.study-subject-tag {
+  display:inline-flex; align-items:center; gap:.4rem;
+  font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+  padding:.3rem .7rem; border-radius: var(--r-p);
+  margin-bottom: .9rem;
+}
+.study-q-text {
+  font-family: var(--serif); font-size:1.08rem; font-weight:600; line-height:1.55;
+  margin-bottom: 1.15rem;
+}
+.study-option {
+  display:flex; align-items:flex-start; gap:.75rem;
+  padding: .8rem .3rem;
+  border-bottom: 1px solid var(--border-w);
+  font-size: .9rem; line-height:1.5;
+  width:100%; text-align:left;
+}
+.study-option:last-of-type { border-bottom:none; }
+.study-option-letter {
+  width:24px; height:24px; border-radius:50%;
+  border: 1.5px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  font-size:.72rem; font-weight:700; color:var(--text-dim); flex-shrink:0; margin-top:.05rem;
+  transition: all var(--t);
+}
+.study-option.s-correct .study-option-letter { background: var(--green); border-color:var(--green); color:var(--white); }
+.study-option.s-correct { color: #0d7a37; font-weight:600; }
+.study-option.s-incorrect .study-option-letter { background: var(--red); border-color:var(--red); color:var(--white); }
+.study-option.s-incorrect { color: #a91d1d; text-decoration: line-through; text-decoration-color: rgba(220,38,38,.4); }
+
+.study-explanation {
+  background: var(--white);
+  border-radius: var(--r-s);
+  padding: .9rem 1rem;
+  font-size: .85rem; color: var(--text-mid); line-height:1.55;
+  margin-top: 1rem;
+  border-left: 3px solid var(--gold);
+}
+.study-explanation-label { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color: var(--gold-dk); margin-bottom:.3rem; }
+
+/* ══════════════════════════════
+   EXAM MODE (Quiz) — answer-sheet feel, OMR-style bubbles
+══════════════════════════════ */
+.exam-progress-track { height: 3px; background: var(--border-w); }
+.exam-progress-fill { height: 100%; background: var(--coral); transition: width .25s ease; }
+
+.exam-card {
+  background: var(--white);
+  border: 1px solid var(--border-w);
+  border-radius: var(--r-l);
+  padding: 1.4rem 1.1rem 1.5rem;
+  box-shadow: var(--sh-s);
+  background-image: repeating-linear-gradient(var(--white) 0 34px, var(--border-w) 34px 35px);
+  background-position: 0 3.4rem;
+}
+.exam-q-number {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:28px; height:28px; border-radius:50%;
+  background: var(--ink); color:var(--white);
+  font-family:var(--serif); font-weight:700; font-size:.85rem;
+  margin-bottom: .7rem;
+}
+.exam-q-text { font-size:1.02rem; font-weight:600; line-height:1.55; margin-bottom:1.3rem; }
+.exam-options { display:flex; flex-direction:column; gap:.65rem; }
+.exam-opt {
+  display:flex; align-items:center; gap:.85rem;
+  padding: .7rem .3rem;
+  width:100%; text-align:left; font-size:.9rem;
+}
+.exam-opt-bubble {
+  width:30px; height:30px; border-radius:50%; flex-shrink:0;
+  border: 2px solid var(--text-dim);
+  display:flex; align-items:center; justify-content:center;
+  font-size:.78rem; font-weight:700; color:var(--text-dim);
+  transition: all var(--t);
+}
+.exam-opt.selected .exam-opt-bubble { background: var(--ink); border-color:var(--ink); color:var(--white); }
+.exam-opt.selected { font-weight:600; }
+.exam-nav-row { display:flex; gap:.6rem; margin-top:1.5rem; }
+.exam-nav-row .btn { flex:1; }
+
+/* ══════════════════════════════
+   DUEL MODE (Challenge) — competitive, avatar-driven
+══════════════════════════════ */
+.duel-avatar {
+  width:38px; height:38px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--white); font-weight:700; font-size:.85rem; flex-shrink:0;
+  box-shadow: 0 2px 6px rgba(0,0,0,.15);
+}
+.duel-avatar-sm { width:30px; height:30px; font-size:.72rem; }
+
+.duel-participant {
+  display:flex; align-items:center; gap:.7rem;
+  padding: .65rem .8rem;
+  background: var(--cream-w);
+  border-radius: var(--r-m);
+  margin-bottom:.5rem;
+  border: 1.5px solid transparent;
+  transition: border-color var(--t);
+}
+.duel-participant.ready { border-color: rgba(22,163,74,.35); background: var(--green-bg); }
+.duel-participant-name { flex:1; font-weight:600; font-size:.88rem; }
+.duel-status-chip {
+  font-size:.72rem; font-weight:700; color:var(--text-dim);
+  padding:.2rem .55rem; border-radius: var(--r-p); background:rgba(10,22,40,.05);
+}
+.duel-participant.ready .duel-status-chip { color:#0d7a37; background: rgba(22,163,74,.15); }
+
+.duel-leaderboard-row {
+  display:flex; align-items:center; gap:.7rem;
+  padding: .7rem .8rem;
+  background: var(--cream-w);
+  border-radius: var(--r-m);
+  margin-bottom:.5rem;
+}
+.duel-leaderboard-row.is-me { background: var(--coral-pale); border:1.5px solid rgba(232,93,74,.3); }
+.duel-rank { font-family:var(--serif); font-weight:700; font-size:1.05rem; color:var(--text-dim); width:1.7rem; text-align:center; flex-shrink:0; }
+.duel-lb-name { flex:1; font-weight:600; font-size:.88rem; }
+.duel-lb-score { text-align:right; font-weight:700; font-size:.85rem; color:var(--text); }
+.duel-lb-score em { display:block; font-style:normal; font-weight:800; font-size:.78rem; color:var(--coral); }

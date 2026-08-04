@@ -107,23 +107,25 @@
     </div>
   </section>
 
-  <!-- ════════════════ REVISION SCREEN ════════════════ -->
+  <!-- ════════════════ REVISION SCREEN (Study Mode) ════════════════ -->
   <section id="revisionScreen" class="screen">
     <div class="topbar">
       <button class="back-btn" data-back="subject">←</button>
-      <h2 class="topbar-title" id="revisionTitle">Revision</h2>
+      <h2 class="topbar-title" id="revisionTitle">Study Mode</h2>
       <span id="revisionProgress" class="topbar-progress"></span>
     </div>
+    <div class="study-progress-track"><div class="study-progress-fill" id="studyProgressFill"></div></div>
     <div class="container" id="revisionBody" style="padding-top:1.25rem; padding-bottom:2rem;"></div>
   </section>
 
-  <!-- ════════════════ QUIZ SCREEN ════════════════ -->
+  <!-- ════════════════ QUIZ SCREEN (Exam Mode) ════════════════ -->
   <section id="quizScreen" class="screen">
     <div class="topbar">
       <button class="back-btn" data-back="confirm-exit-quiz">←</button>
       <h2 class="topbar-title" id="quizTitle">Quiz</h2>
       <span id="quizTimer" class="topbar-progress">--:--</span>
     </div>
+    <div class="exam-progress-track"><div class="exam-progress-fill" id="examProgressFill"></div></div>
     <div class="container" id="quizBody" style="padding-top:1.25rem; padding-bottom:2rem;"></div>
   </section>
 
@@ -230,7 +232,7 @@
       </div>
 
       <div id="qcWaiting" class="hidden">
-        <h3 class="sheet-title">Waiting Room</h3>
+        <h3 class="sheet-title">⚔️ Duel Lobby</h3>
         <p class="sheet-sub" id="qcWaitingStatus">Waiting for everyone to be ready…</p>
         <div id="qcWaitingList"></div>
         <button class="btn btn-primary btn-block hidden" id="qcMarkReadyBtn" style="margin-top:1rem;">I'm Ready</button>
@@ -239,7 +241,7 @@
       </div>
 
       <div id="qcResults" class="hidden">
-        <h3 class="sheet-title">Challenge Results</h3>
+        <h3 class="sheet-title">🏆 Duel Results</h3>
         <div id="qcLeaderboard"></div>
         <button class="btn btn-primary btn-block" id="qcNewChallengeBtn" style="margin-top:.75rem;">New Challenge →</button>
         <button class="btn btn-ghost btn-block" id="qcDoneBtn" style="margin-top:.5rem;">Done</button>
