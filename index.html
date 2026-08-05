@@ -96,8 +96,8 @@
 
       <button class="feature-card" data-action="games">
         <div class="feature-icon fi-games">🎮</div>
-        <h3>Speed Round</h3>
-        <p>60 seconds, rapid-fire questions. Build a streak, beat your score.</p>
+        <h3>Games</h3>
+        <p>Speed Round, True or False, Memory Match — pick your game.</p>
       </button>
 
       <button class="feature-card" data-action="friend-study">
@@ -146,7 +146,32 @@
     <div class="container" id="quizBody" style="padding-top:1.25rem; padding-bottom:2rem;"></div>
   </section>
 
-  <!-- ════════════════ SPEED ROUND (EDU GAME) ════════════════ -->
+  <!-- ════════════════ GAMES HUB ════════════════ -->
+  <section id="gamesHubScreen" class="screen">
+    <div class="topbar">
+      <button class="back-btn" data-back="home">←</button>
+      <h2 class="topbar-title">🎮 Games</h2>
+    </div>
+    <div class="container" style="padding-top:1.25rem; padding-bottom:2rem;">
+      <button class="game-choice-card" data-game="game">
+        <div class="gc-icon" style="background:rgba(232,93,74,.12);">⚡</div>
+        <div class="gc-text"><h3>Speed Round</h3><p>60 seconds, rapid-fire multiple choice. Build a streak.</p></div>
+        <span class="gc-arrow">→</span>
+      </button>
+      <button class="game-choice-card" data-game="tf">
+        <div class="gc-icon" style="background:rgba(37,99,235,.12);">✓✗</div>
+        <div class="gc-text"><h3>True or False Blitz</h3><p>Rapid true/false calls. Fastest, simplest, most intense.</p></div>
+        <span class="gc-arrow">→</span>
+      </button>
+      <button class="game-choice-card" data-game="memory">
+        <div class="gc-icon" style="background:rgba(124,58,237,.12);">🧠</div>
+        <div class="gc-text"><h3>Memory Match</h3><p>Flip cards to pair terms with definitions. No timer pressure.</p></div>
+        <span class="gc-arrow">→</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ════════════════ SPEED ROUND / TRUE-FALSE BLITZ (EDU GAME) ════════════════ -->
   <section id="gameScreen" class="screen">
     <div class="game-topbar">
       <button class="back-btn back-btn-light" data-back="confirm-exit-quiz">←</button>
@@ -154,12 +179,30 @@
       <div class="game-timer" id="gameTimer">60</div>
       <div class="game-stat"><span id="gameStreak">0</span><label>Streak</label></div>
     </div>
+    <div class="game-subject-badge" id="gameSubjectBadge"></div>
     <div class="container" id="gameBody" style="padding-top:1.5rem; padding-bottom:2rem;"></div>
   </section>
 
   <!-- ════════════════ GAME RESULTS ════════════════ -->
   <section id="gameResultsScreen" class="screen">
     <div class="container" id="gameResultsBody" style="padding-top:2rem; padding-bottom:2rem;"></div>
+  </section>
+
+  <!-- ════════════════ MEMORY MATCH ════════════════ -->
+  <section id="memoryScreen" class="screen">
+    <div class="game-topbar">
+      <button class="back-btn back-btn-light" data-back="confirm-exit-quiz">←</button>
+      <div class="game-stat"><span id="memMoves">0</span><label>Moves</label></div>
+      <div class="game-timer" id="memTimer">0:00</div>
+      <div class="game-stat"><span id="memPairs">0/0</span><label>Pairs</label></div>
+    </div>
+    <div class="game-subject-badge" id="memSubjectBadge"></div>
+    <div class="container" id="memoryBody" style="padding-top:1.25rem; padding-bottom:2rem;"></div>
+  </section>
+
+  <!-- ════════════════ MEMORY MATCH RESULTS ════════════════ -->
+  <section id="memoryResultsScreen" class="screen">
+    <div class="container" id="memoryResultsBody" style="padding-top:2rem; padding-bottom:2rem;"></div>
   </section>
 
   <!-- ════════════════ QUIZ RESULTS ════════════════ -->

@@ -160,6 +160,27 @@ subject has nothing yet, tapping it shows "content isn't ready yet" instead of a
 Adding more is a content-only change — drop entries into `data/senior/senior-resources.js` or
 `data/junior/junior-resources.js` under the right subject key, no app logic changes needed.
 
+## New in this update — real interaction variety (not just skins)
+
+Feedback: Revision, Quiz, and Speed Round all *looked* different but were mechanically the
+same thing — read a question, tap an option. Fixed at the interaction level, not just visually:
+
+- **Bug fix**: Speed Round never showed which subject/category you were playing (no label
+  anywhere in the game screen). Added a subject badge under the timer bar.
+- **Study Mode is now recall-first**: instead of tapping an option to check yourself (which is
+  literally what Quiz does), you read the question, think of the answer yourself, then tap
+  "Reveal Answer." Options appear read-only with the correct one highlighted, plus a self-rate
+  ("😊 I knew it" / "😕 Still learning") — active recall, not recognition-testing.
+- **"Games" is now a hub, not a single mode.** Tapping it opens a picker for three genuinely
+  different mechanics:
+  - **Speed Round** (existing) — 4-option grid, rapid tap, streak scoring
+  - **True or False Blitz** (new) — two giant Yes/No buttons, statements derived on the fly
+    from the existing question bank (no new data, no AI needed) — different rhythm, different
+    motor pattern entirely from a 4-option grid
+  - **Memory Match** (new) — flip tiles to pair flashcard terms with definitions, untimed
+    pressure (clock counts up, not down) — no question-reading at all, pure matching, reuses
+    Study Library's flashcard data directly. Deliberately calmer than the other two.
+
 **Open items before this is fully launch-ready:**
 - **Holiday end date**: the countdown in `js/app.js` (`HOLIDAY_END`) is set to a placeholder
   date (Sept 14, 2026) — confirm the actual resumption date and I'll update it.

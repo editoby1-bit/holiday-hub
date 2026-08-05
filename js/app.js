@@ -189,9 +189,13 @@
         if (!confirm('Leave this quiz? Your progress will be lost.')) return;
         stopTimer();
       }
-      if (S.mode === 'game') {
-        if (!confirm('Leave Speed Round? Your score will be lost.')) return;
+      if (S.mode === 'game' || S.mode === 'tf') {
+        if (!confirm('Leave the game? Your score will be lost.')) return;
         stopGameTimer();
+      }
+      if (S.mode === 'memory') {
+        if (!confirm('Leave Memory Match? Your progress will be lost.')) return;
+        stopMemoryTimer();
       }
       showScreen('subjectScreen');
       return;
@@ -232,6 +236,17 @@
   function recordSession(pct) {
     S.stats.sessions++;
     S.stats.totalPct += pct;
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    if (S.stats.lastActiveDate === yesterday) S.stats.streak++;
+    else if (S.stats.lastActiveDate !== today) S.stats.streak = 1;
+    S.stats.lastActiveDate = today;
+    saveSafe(STATS_KEY, S.stats);
+    renderHomeStats();
+  }
+  /** For non-scored activities (e.g. Memory Match) — keeps the day-streak
+   * alive without skewing the "Average" stat, which is score-based. */
+  function recordActivity() {
     const today = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     if (S.stats.lastActiveDate === yesterday) S.stats.streak++;
@@ -284,6 +299,12 @@
         ensureUser(() => handleFeature(action));
       });
     });
+    document.querySelectorAll('.game-choice-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const game = card.dataset.game;
+        openSubjectPicker(game);
+      });
+    });
   }
 
   function handleFeature(action) {
@@ -292,7 +313,7 @@
     else if (action === 'challenge') openQuizChallenge();
     else if (action === 'friend-study') openQuizChallenge(true);
     else if (action === 'project') openProjectHelper();
-    else if (action === 'games') openSubjectPicker('game');
+    else if (action === 'games') { showScreen('gamesHubScreen'); }
     else if (action === 'library') openSubjectPicker('library');
   }
 
@@ -312,7 +333,7 @@
     if (last && last.category === S.category && CONTENT_MANIFEST[S.category].subjects.includes(last.subject)) {
       const meta = subjectMeta(last.subject);
       const label = SUBJECT_LABELS[last.subject] || last.subject;
-      const modeLabel = { revision: 'Study Mode', quiz: 'Quiz', game: 'Speed Round', library: 'Study Library' }[last.mode] || 'practice';
+      const modeLabel = { revision: 'Study Mode', quiz: 'Quiz', game: 'Speed Round', library: 'Study Library', tf: 'True or False Blitz', memory: 'Memory Match' }[last.mode] || 'practice';
       cards.push(`
         <button class="nudge-card nudge-continue" data-nudge="continue">
           <span class="nudge-icon">${meta.icon}</span>
@@ -340,6 +361,8 @@
       ensureUser(() => {
         if (last.mode === 'revision') startRevision(last.subject);
         else if (last.mode === 'game') startSpeedRound(last.subject);
+        else if (last.mode === 'tf') startTrueFalseBlitz(last.subject);
+        else if (last.mode === 'memory') startMemoryMatch(last.subject);
         else if (last.mode === 'library') openLibrary(last.subject);
         else startQuizSetup(last.subject);
       });
@@ -545,7 +568,11 @@
     const manifest = CONTENT_MANIFEST[S.category];
     const bank = getBank(S.category);
     const resBank = getResourceBank(S.category);
-    const titles = { quiz: 'Quiz — pick a subject', revision: 'Revision — pick a subject', game: '🎮 Speed Round — pick a subject', library: '📚 Study Library — pick a subject' };
+    const titles = {
+      quiz: 'Quiz — pick a subject', revision: 'Revision — pick a subject',
+      game: '⚡ Speed Round — pick a subject', library: '📚 Study Library — pick a subject',
+      tf: '✓✗ True or False — pick a subject', memory: '🧠 Memory Match — pick a subject',
+    };
     document.getElementById('subjectScreenTitle').textContent = titles[mode] || 'Pick a subject';
 
     const list = document.getElementById('subjectList');
@@ -557,6 +584,10 @@
         const r = resBank[key] || { flashcards: [], formulas: [], notes: [] };
         const total = (r.flashcards || []).length + (r.formulas || []).length + (r.notes || []).length;
         countText = total ? `${total} resources` : 'Coming soon';
+      } else if (mode === 'memory') {
+        const r = resBank[key] || { flashcards: [] };
+        const pairCount = (r.flashcards || []).length;
+        countText = pairCount >= 4 ? `${pairCount} card pairs` : 'Coming soon';
       } else {
         const subj = bank[key];
         const count = subj && subj.objective ? subj.objective.length : 0;
@@ -577,6 +608,8 @@
         S.subject = row.dataset.subject;
         if (mode === 'quiz') startQuizSetup(S.subject);
         else if (mode === 'game') startSpeedRound(S.subject);
+        else if (mode === 'tf') startTrueFalseBlitz(S.subject);
+        else if (mode === 'memory') startMemoryMatch(S.subject);
         else if (mode === 'library') openLibrary(S.subject);
         else startRevision(S.subject);
       });
@@ -617,12 +650,16 @@
       <div class="study-card">
         <span class="study-subject-tag" style="background:${meta.color}1a; color:${meta.color};">${meta.icon} ${SUBJECT_LABELS[S.subject] || S.subject}</span>
         <div class="study-q-text">${q.question}</div>
-        <div id="revOptions">
+        <div class="recall-prompt" id="recallPrompt">
+          <p>Think through your answer first, then reveal it.</p>
+          <button class="btn btn-primary btn-block" id="revealBtn">👁 Reveal Answer</button>
+        </div>
+        <div id="revOptions" class="hidden">
           ${q.options.map((opt, i) => `
-            <button class="study-option" data-i="${i}">
+            <div class="study-option ${i === q.answer ? 's-correct' : ''}" data-i="${i}">
               <span class="study-option-letter">${letters[i]}</span>
               <span>${opt}</span>
-            </button>`).join('')}
+            </div>`).join('')}
         </div>
         <div id="revExplanation" class="study-explanation hidden">
           <div class="study-explanation-label">Why</div>
@@ -630,24 +667,30 @@
           <button class="explain-differently-btn" id="explainDifferentlyBtn">✨ Still confused? Explain this differently</button>
           <div id="explainDifferentlyResult"></div>
         </div>
+        <div class="self-rate-row hidden" id="selfRateRow">
+          <button class="self-rate-btn self-rate-no" data-rate="no">😕 Still learning this</button>
+          <button class="self-rate-btn self-rate-yes" data-rate="yes">😊 I knew it</button>
+        </div>
         <div class="q-nav-row">
           <button class="btn btn-ghost" id="revPrev" ${S.idx === 0 ? 'disabled' : ''}>← Previous</button>
           <button class="btn btn-primary" id="revNext" ${S.idx === S.questions.length - 1 ? 'disabled' : ''}>Next →</button>
         </div>
       </div>`;
 
-    body.querySelectorAll('.study-option').forEach(btn => {
+    document.getElementById('revealBtn').addEventListener('click', () => {
+      document.getElementById('recallPrompt').classList.add('hidden');
+      document.getElementById('revOptions').classList.remove('hidden');
+      const exp = document.getElementById('revExplanation');
+      document.getElementById('revExplanationText').textContent = q.explanation || 'No explanation available for this question.';
+      exp.classList.remove('hidden');
+      document.getElementById('selfRateRow').classList.remove('hidden');
+      document.getElementById('explainDifferentlyBtn').onclick = () => explainDifferently(q);
+    });
+
+    document.querySelectorAll('.self-rate-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const i = parseInt(btn.dataset.i, 10);
-        body.querySelectorAll('.study-option').forEach((b, bi) => {
-          b.classList.remove('s-correct', 's-incorrect');
-          if (bi === q.answer) b.classList.add('s-correct');
-          else if (bi === i) b.classList.add('s-incorrect');
-        });
-        const exp = document.getElementById('revExplanation');
-        document.getElementById('revExplanationText').textContent = q.explanation || 'No explanation available for this question.';
-        exp.classList.remove('hidden');
-        document.getElementById('explainDifferentlyBtn').onclick = () => explainDifferently(q);
+        document.querySelectorAll('.self-rate-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
       });
     });
 
@@ -997,7 +1040,7 @@
   const GAME_MIN_QUEUE = 8;      // fetch more AI questions when queue drops below this
   const GAME_LOCK_MS = 550;      // pause after tap to show correct/incorrect before advancing
 
-  let G = { subject: null, queue: [], idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+  let G = { kind: 'speed', subject: null, queue: [], idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
 
   function stopGameTimer() {
     if (S.gameTimerInterval) clearInterval(S.gameTimerInterval);
@@ -1015,7 +1058,7 @@
     const pool = subj.objective.slice();
     const { questions } = pickQuestions(S.category, subjectKey, pool, Math.min(pool.length, 25));
 
-    G = { subject: subjectKey, queue: questions, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    G = { kind: 'speed', subject: subjectKey, queue: questions, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
     S.mode = 'game';
     S.gameTimerSecs = GAME_DURATION_SECS;
     setLastActivity(S.category, subjectKey, 'game');
@@ -1023,6 +1066,9 @@
     document.getElementById('gameScore').textContent = '0';
     document.getElementById('gameStreak').textContent = '0';
     updateGameTimerDisplay();
+    const catLabel = CONTENT_MANIFEST[S.category].label;
+    const meta = subjectMeta(subjectKey);
+    document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
 
     renderGameQuestion();
     showScreen('gameScreen');
@@ -1050,6 +1096,11 @@
       finishSpeedRound();
       return;
     }
+    if (G.kind === 'tf') renderTFItem();
+    else renderSpeedItem();
+  }
+
+  function renderSpeedItem() {
     const q = G.queue[G.idx];
     const body = document.getElementById('gameBody');
     const letters = ['A', 'B', 'C', 'D'];
@@ -1067,6 +1118,122 @@
     });
 
     maybeTopUpQueue();
+  }
+
+  /* ────────────────────────────────
+     TRUE OR FALSE BLITZ
+     Same rapid-fire rhythm as Speed Round, completely different
+     interaction: two giant tap targets instead of a 4-option grid.
+     Statements are derived on the fly from the existing MCQ bank —
+     no new data, no AI needed. Each source question yields a "true"
+     statement (using the real answer) and a "false" one (using a
+     wrong option), roughly doubling the effective pool.
+  ──────────────────────────────── */
+  function buildTFQueue(subjectKey) {
+    const bank = getBank(S.category);
+    const pool = (bank[subjectKey].objective || []).slice();
+    const items = [];
+    pool.forEach(q => {
+      if (!q.options || q.options.length < 2) return;
+      items.push({
+        id: q.id + '-t', sourceId: q.id,
+        statement: `${q.question} — Is the answer "${q.options[q.answer]}"?`,
+        isTrue: true, explanation: q.explanation || '',
+      });
+      const wrongIdxs = q.options.map((_, i) => i).filter(i => i !== q.answer);
+      if (wrongIdxs.length) {
+        const wrongIdx = wrongIdxs[Math.floor(Math.random() * wrongIdxs.length)];
+        items.push({
+          id: q.id + '-f', sourceId: q.id,
+          statement: `${q.question} — Is the answer "${q.options[wrongIdx]}"?`,
+          isTrue: false, explanation: q.explanation || '',
+        });
+      }
+    });
+    shuffleArray(items);
+    return items;
+  }
+
+  function startTrueFalseBlitz(subjectKey) {
+    const bank = getBank(S.category);
+    const subj = bank[subjectKey];
+    if (!subj || !subj.objective || !subj.objective.length) {
+      showToast('No questions available for this subject yet.');
+      return;
+    }
+
+    const queue = buildTFQueue(subjectKey);
+    G = { kind: 'tf', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'tf';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+    setLastActivity(S.category, subjectKey, 'tf');
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    const catLabel = CONTENT_MANIFEST[S.category].label;
+    const meta = subjectMeta(subjectKey);
+    document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  function renderTFItem() {
+    const item = G.queue[G.idx];
+    const body = document.getElementById('gameBody');
+    body.innerHTML = `
+      <div class="game-q-meta">Statement ${G.idx + 1}</div>
+      <div class="tf-statement">${item.statement}</div>
+      <div class="tf-buttons">
+        <button class="tf-btn tf-false" data-guess="false">✗<span>False</span></button>
+        <button class="tf-btn tf-true" data-guess="true">✓<span>True</span></button>
+      </div>`;
+    body.querySelector('[data-guess="true"]').addEventListener('click', () => selectTFAnswer(true));
+    body.querySelector('[data-guess="false"]').addEventListener('click', () => selectTFAnswer(false));
+  }
+
+  function selectTFAnswer(guessTrue) {
+    if (G.locked) return;
+    G.locked = true;
+    const item = G.queue[G.idx];
+    const isCorrect = guessTrue === item.isTrue;
+    G.attempted++;
+    G.usedIds.push(item.sourceId);
+
+    const trueBtn = document.querySelector('.tf-btn.tf-true');
+    const falseBtn = document.querySelector('.tf-btn.tf-false');
+    const correctBtn = item.isTrue ? trueBtn : falseBtn;
+    const guessedBtn = guessTrue ? trueBtn : falseBtn;
+    correctBtn.classList.add('tf-correct');
+    if (!isCorrect) guessedBtn.classList.add('tf-incorrect');
+
+    if (isCorrect) {
+      G.correct++;
+      G.streak++;
+      G.bestStreak = Math.max(G.bestStreak, G.streak);
+      const bonus = G.streak >= 5 ? 3 : G.streak >= 3 ? 2 : 1;
+      G.score += 10 * bonus;
+      if (G.streak > 0 && G.streak % 3 === 0) flashStreak(G.streak);
+    } else {
+      G.streak = 0;
+    }
+
+    document.getElementById('gameScore').textContent = G.score;
+    document.getElementById('gameStreak').textContent = G.streak;
+
+    setTimeout(() => {
+      G.locked = false;
+      G.idx++;
+      if (S.gameTimerSecs > 0) renderGameQuestion();
+    }, GAME_LOCK_MS);
   }
 
   function selectGameAnswer(i) {
@@ -1152,10 +1319,11 @@
 
   function renderGameResults(pct) {
     const body = document.getElementById('gameResultsBody');
+    const gameTitle = G.kind === 'tf' ? '✓✗ True or False Blitz' : '⚡ Speed Round';
     const verdict = G.bestStreak >= 8 ? "🔥 On fire! Incredible streak." : G.bestStreak >= 4 ? "Nice streak — keep it up!" : "Good round — try to build a streak next time.";
     body.innerHTML = `
       <div class="game-result-hero">
-        <div class="game-q-meta">⏱ Time's up!</div>
+        <div class="game-q-meta">${gameTitle} · ⏱ Time's up!</div>
         <div class="game-result-score">${G.score}</div>
         <div class="game-result-sub">points</div>
         <p style="margin-top:1rem; font-size:.95rem; color:var(--text-mid);">${verdict}</p>
@@ -1169,8 +1337,145 @@
         <button class="btn btn-primary btn-block" id="gameReplayBtn">Play Again →</button>
         <button class="btn btn-ghost btn-block" id="gameHomeBtn">Back to Home</button>
       </div>`;
-    document.getElementById('gameReplayBtn').addEventListener('click', () => startSpeedRound(G.subject));
+    document.getElementById('gameReplayBtn').addEventListener('click', () => {
+      if (G.kind === 'tf') startTrueFalseBlitz(G.subject); else startSpeedRound(G.subject);
+    });
     document.getElementById('gameHomeBtn').addEventListener('click', () => { showScreen('homeScreen'); renderDashboardNudge(); updateStudyPlanBanner(); });
+  }
+
+  /* ────────────────────────────────
+     MEMORY MATCH
+     A genuinely different mechanic — no reading a question and picking
+     an answer at all. Flip tiles to pair a flashcard term with its
+     definition. Untimed pressure (clock counts up, not down) — this
+     one is meant to feel calm, not urgent, unlike the two games above.
+     Reuses Study Library's flashcard data directly.
+  ──────────────────────────────── */
+  let MEM = { subject: null, tiles: [], flippedIdx: [], matchedCount: 0, totalPairs: 0, moves: 0, startTime: 0, locked: false };
+
+  function stopMemoryTimer() {
+    if (S.memTimerInterval) clearInterval(S.memTimerInterval);
+    S.memTimerInterval = null;
+  }
+
+  function startMemoryMatch(subjectKey) {
+    const resBank = getResourceBank(S.category);
+    const cards = ((resBank[subjectKey] || {}).flashcards || []).slice();
+    if (cards.length < 4) {
+      showToast('Not enough flashcards for Memory Match on this subject yet.');
+      return;
+    }
+
+    shuffleArray(cards);
+    const pairCount = Math.min(6, cards.length);
+    const chosen = cards.slice(0, pairCount);
+    const tiles = [];
+    chosen.forEach((c, i) => {
+      tiles.push({ pairId: i, text: c.term, matched: false });
+      tiles.push({ pairId: i, text: c.definition, matched: false });
+    });
+    shuffleArray(tiles);
+
+    MEM = { subject: subjectKey, tiles, flippedIdx: [], matchedCount: 0, totalPairs: pairCount, moves: 0, startTime: Date.now(), locked: false };
+    setLastActivity(S.category, subjectKey, 'memory');
+
+    document.getElementById('memMoves').textContent = '0';
+    document.getElementById('memPairs').textContent = `0/${pairCount}`;
+    document.getElementById('memTimer').textContent = '0:00';
+    const meta = subjectMeta(subjectKey);
+    document.getElementById('memSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${CONTENT_MANIFEST[S.category].label}`;
+
+    renderMemoryGrid();
+    showScreen('memoryScreen');
+
+    stopMemoryTimer();
+    S.memTimerInterval = setInterval(updateMemoryTimerDisplay, 1000);
+  }
+
+  function updateMemoryTimerDisplay() {
+    const secs = Math.floor((Date.now() - MEM.startTime) / 1000);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    document.getElementById('memTimer').textContent = `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function renderMemoryGrid() {
+    const body = document.getElementById('memoryBody');
+    body.innerHTML = `<div class="memory-grid">${MEM.tiles.map((t, i) => {
+      const isFlipped = MEM.flippedIdx.includes(i) || t.matched;
+      return `
+      <button class="memory-tile ${t.matched ? 'matched' : ''} ${isFlipped ? 'flipped' : ''}" data-i="${i}" ${t.matched ? 'disabled' : ''}>
+        <div class="memory-tile-inner">
+          <div class="memory-tile-face memory-tile-back">?</div>
+          <div class="memory-tile-face memory-tile-front">${safe(t.text)}</div>
+        </div>
+      </button>`;
+    }).join('')}</div>`;
+
+    body.querySelectorAll('.memory-tile').forEach(btn => {
+      btn.addEventListener('click', () => flipMemoryTile(parseInt(btn.dataset.i, 10)));
+    });
+  }
+
+  function flipMemoryTile(i) {
+    if (MEM.locked) return;
+    if (MEM.flippedIdx.includes(i)) return;
+    if (MEM.tiles[i].matched) return;
+    if (MEM.flippedIdx.length >= 2) return;
+
+    MEM.flippedIdx.push(i);
+    renderMemoryGrid();
+
+    if (MEM.flippedIdx.length === 2) {
+      MEM.moves++;
+      document.getElementById('memMoves').textContent = MEM.moves;
+      MEM.locked = true;
+      const [a, b] = MEM.flippedIdx;
+      const isMatch = a !== b && MEM.tiles[a].pairId === MEM.tiles[b].pairId;
+
+      setTimeout(() => {
+        if (isMatch) {
+          MEM.tiles[a].matched = true;
+          MEM.tiles[b].matched = true;
+          MEM.matchedCount++;
+          document.getElementById('memPairs').textContent = `${MEM.matchedCount}/${MEM.totalPairs}`;
+        }
+        MEM.flippedIdx = [];
+        MEM.locked = false;
+        renderMemoryGrid();
+        if (MEM.matchedCount === MEM.totalPairs) finishMemoryMatch();
+      }, isMatch ? 550 : 950);
+    }
+  }
+
+  function finishMemoryMatch() {
+    stopMemoryTimer();
+    const secs = Math.floor((Date.now() - MEM.startTime) / 1000);
+    recordActivity();
+
+    const body = document.getElementById('memoryResultsBody');
+    const m = Math.floor(secs / 60), s = secs % 60;
+    const timeStr = `${m}:${String(s).padStart(2, '0')}`;
+    const verdict = MEM.moves <= MEM.totalPairs + 2 ? "🧠 Excellent memory — barely any wasted flips!" : MEM.moves <= MEM.totalPairs * 2 ? "Nice work — solid pairing." : "All matched! Try to beat your move count next time.";
+
+    body.innerHTML = `
+      <div class="game-result-hero">
+        <div class="game-q-meta">🧠 Memory Match · All Pairs Found!</div>
+        <div class="game-result-score">${timeStr}</div>
+        <div class="game-result-sub">time</div>
+        <p style="margin-top:1rem; font-size:.95rem; color:var(--text-mid);">${verdict}</p>
+      </div>
+      <div class="game-result-stats">
+        <div class="grs-box"><span>${MEM.moves}</span><label>Moves</label></div>
+        <div class="grs-box"><span>${MEM.totalPairs}</span><label>Pairs</label></div>
+      </div>
+      <div class="result-actions">
+        <button class="btn btn-primary btn-block" id="memReplayBtn">Play Again →</button>
+        <button class="btn btn-ghost btn-block" id="memHomeBtn">Back to Home</button>
+      </div>`;
+    document.getElementById('memReplayBtn').addEventListener('click', () => startMemoryMatch(MEM.subject));
+    document.getElementById('memHomeBtn').addEventListener('click', () => { showScreen('homeScreen'); renderDashboardNudge(); updateStudyPlanBanner(); });
+
+    showScreen('memoryResultsScreen');
   }
 
   /* ────────────────────────────────
