@@ -181,6 +181,23 @@ same thing — read a question, tap an option. Fixed at the interaction level, n
     pressure (clock counts up, not down) — no question-reading at all, pure matching, reuses
     Study Library's flashcard data directly. Deliberately calmer than the other two.
 
+## New in this update — Study Mode fix + 4th game
+
+- **Study Mode fixed**: previous version showed the answer immediately after "Reveal" (too
+  passive). Now it's a proper 3-step flow: read question → tap "Reveal Options" (options
+  appear, but plain — no answer shown yet) → tap the option you think is right → *then* see
+  correct/incorrect + explanation. Real self-testing, not just a recall-then-read flow.
+- **Category Sort** (new 4th game): a genuinely different mechanic from the other three —
+  classification, not question-answering. Terms from up to 4 subjects get mixed together;
+  four bucket buttons (one per subject) appear, and you tap which subject each term belongs
+  to. Spans multiple subjects by design, so it skips the subject picker and starts straight
+  from the Games Hub. Reuses Study Library flashcard data, same scoring/streak rhythm as the
+  other timed games.
+- Verified visually this round (not just functionally) using Playwright screenshots — caught
+  and fixed a real contrast bug in Category Sort's term card (white text on a near-white
+  background) before it shipped, and confirmed the Speed Round subject badge fix actually
+  renders correctly.
+
 **Open items before this is fully launch-ready:**
 - **Holiday end date**: the countdown in `js/app.js` (`HOLIDAY_END`) is set to a placeholder
   date (Sept 14, 2026) — confirm the actual resumption date and I'll update it.

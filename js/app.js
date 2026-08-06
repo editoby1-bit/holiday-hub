@@ -189,7 +189,7 @@
         if (!confirm('Leave this quiz? Your progress will be lost.')) return;
         stopTimer();
       }
-      if (S.mode === 'game' || S.mode === 'tf') {
+      if (S.mode === 'game' || S.mode === 'tf' || S.mode === 'sort') {
         if (!confirm('Leave the game? Your score will be lost.')) return;
         stopGameTimer();
       }
@@ -302,7 +302,8 @@
     document.querySelectorAll('.game-choice-card').forEach(card => {
       card.addEventListener('click', () => {
         const game = card.dataset.game;
-        openSubjectPicker(game);
+        if (game === 'sort') startCategorySort();
+        else openSubjectPicker(game);
       });
     });
   }
@@ -651,15 +652,15 @@
         <span class="study-subject-tag" style="background:${meta.color}1a; color:${meta.color};">${meta.icon} ${SUBJECT_LABELS[S.subject] || S.subject}</span>
         <div class="study-q-text">${q.question}</div>
         <div class="recall-prompt" id="recallPrompt">
-          <p>Think through your answer first, then reveal it.</p>
-          <button class="btn btn-primary btn-block" id="revealBtn">👁 Reveal Answer</button>
+          <p>Think through your answer first, then reveal the options.</p>
+          <button class="btn btn-primary btn-block" id="revealBtn">👁 Reveal Options</button>
         </div>
         <div id="revOptions" class="hidden">
           ${q.options.map((opt, i) => `
-            <div class="study-option ${i === q.answer ? 's-correct' : ''}" data-i="${i}">
+            <button class="study-option" data-i="${i}">
               <span class="study-option-letter">${letters[i]}</span>
               <span>${opt}</span>
-            </div>`).join('')}
+            </button>`).join('')}
         </div>
         <div id="revExplanation" class="study-explanation hidden">
           <div class="study-explanation-label">Why</div>
@@ -680,11 +681,23 @@
     document.getElementById('revealBtn').addEventListener('click', () => {
       document.getElementById('recallPrompt').classList.add('hidden');
       document.getElementById('revOptions').classList.remove('hidden');
-      const exp = document.getElementById('revExplanation');
-      document.getElementById('revExplanationText').textContent = q.explanation || 'No explanation available for this question.';
-      exp.classList.remove('hidden');
-      document.getElementById('selfRateRow').classList.remove('hidden');
-      document.getElementById('explainDifferentlyBtn').onclick = () => explainDifferently(q);
+    });
+
+    body.querySelectorAll('.study-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const i = parseInt(btn.dataset.i, 10);
+        body.querySelectorAll('.study-option').forEach((b, bi) => {
+          b.disabled = true;
+          b.classList.remove('s-correct', 's-incorrect');
+          if (bi === q.answer) b.classList.add('s-correct');
+          else if (bi === i) b.classList.add('s-incorrect');
+        });
+        const exp = document.getElementById('revExplanation');
+        document.getElementById('revExplanationText').textContent = q.explanation || 'No explanation available for this question.';
+        exp.classList.remove('hidden');
+        document.getElementById('selfRateRow').classList.remove('hidden');
+        document.getElementById('explainDifferentlyBtn').onclick = () => explainDifferently(q);
+      });
     });
 
     document.querySelectorAll('.self-rate-btn').forEach(btn => {
@@ -1097,6 +1110,7 @@
       return;
     }
     if (G.kind === 'tf') renderTFItem();
+    else if (G.kind === 'sort') renderSortItem();
     else renderSpeedItem();
   }
 
@@ -1236,6 +1250,112 @@
     }, GAME_LOCK_MS);
   }
 
+  /* ────────────────────────────────
+     CATEGORY SORT
+     A fourth, genuinely different mechanic: classification, not
+     question-answering. Terms from several subjects get mixed
+     together; the player taps which subject each one belongs to.
+     Spans multiple subjects by design, so it skips the subject
+     picker entirely and pulls from Study Library flashcards across
+     the current category.
+  ──────────────────────────────── */
+  function buildCategorySortRound() {
+    const resBank = getResourceBank(S.category);
+    const manifest = CONTENT_MANIFEST[S.category];
+    const eligible = manifest.subjects.filter(s => ((resBank[s] || {}).flashcards || []).length >= 3);
+    shuffleArray(eligible);
+    const bucketSubjects = eligible.slice(0, Math.min(4, eligible.length));
+
+    const items = [];
+    bucketSubjects.forEach(subj => {
+      const cards = (resBank[subj].flashcards || []).slice();
+      shuffleArray(cards);
+      cards.slice(0, 8).forEach(c => items.push({ id: subj + '::' + c.term, term: c.term, subject: subj }));
+    });
+    shuffleArray(items);
+    return { bucketSubjects, items };
+  }
+
+  function startCategorySort() {
+    const { bucketSubjects, items } = buildCategorySortRound();
+    if (bucketSubjects.length < 2 || items.length < 6) {
+      showToast('Not enough Study Library content yet across subjects for Category Sort.');
+      return;
+    }
+
+    G = { kind: 'sort', subject: null, queue: items, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false, bucketSubjects };
+    S.mode = 'sort';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    document.getElementById('gameSubjectBadge').textContent = `🗂 Mixed Subjects · ${CONTENT_MANIFEST[S.category].label}`;
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  function renderSortItem() {
+    const item = G.queue[G.idx];
+    const body = document.getElementById('gameBody');
+    body.innerHTML = `
+      <div class="game-q-meta">Which subject does this belong to?</div>
+      <div class="sort-term">${safe(item.term)}</div>
+      <div class="sort-buckets" id="sortBuckets">
+        ${G.bucketSubjects.map(s => {
+          const meta = subjectMeta(s);
+          return `<button class="sort-bucket" data-subject="${s}" style="border-color:${meta.color}55;">
+            <span class="sort-bucket-icon">${meta.icon}</span>
+            <span class="sort-bucket-label">${SUBJECT_LABELS[s] || s}</span>
+          </button>`;
+        }).join('')}
+      </div>`;
+    body.querySelectorAll('.sort-bucket').forEach(btn => {
+      btn.addEventListener('click', () => selectSortAnswer(btn.dataset.subject));
+    });
+  }
+
+  function selectSortAnswer(guessSubject) {
+    if (G.locked) return;
+    G.locked = true;
+    const item = G.queue[G.idx];
+    const isCorrect = guessSubject === item.subject;
+    G.attempted++;
+    G.usedIds.push(item.id);
+
+    document.querySelectorAll('.sort-bucket').forEach(btn => {
+      if (btn.dataset.subject === item.subject) btn.classList.add('sort-correct');
+      else if (btn.dataset.subject === guessSubject) btn.classList.add('sort-incorrect');
+    });
+
+    if (isCorrect) {
+      G.correct++;
+      G.streak++;
+      G.bestStreak = Math.max(G.bestStreak, G.streak);
+      const bonus = G.streak >= 5 ? 3 : G.streak >= 3 ? 2 : 1;
+      G.score += 10 * bonus;
+      if (G.streak > 0 && G.streak % 3 === 0) flashStreak(G.streak);
+    } else {
+      G.streak = 0;
+    }
+    document.getElementById('gameScore').textContent = G.score;
+    document.getElementById('gameStreak').textContent = G.streak;
+
+    setTimeout(() => {
+      G.locked = false;
+      G.idx++;
+      if (S.gameTimerSecs > 0) renderGameQuestion();
+    }, GAME_LOCK_MS);
+  }
+
   function selectGameAnswer(i) {
     if (G.locked) return;
     G.locked = true;
@@ -1310,8 +1430,8 @@
   function finishSpeedRound() {
     stopGameTimer();
     const pct = G.attempted ? Math.round((G.correct / G.attempted) * 100) : 0;
-    if (G.usedIds.length) markSeen(S.category, G.subject, G.usedIds);
-    if (G.attempted) recordMastery(S.category, G.subject, G.correct, G.attempted);
+    if (G.subject && G.usedIds.length) markSeen(S.category, G.subject, G.usedIds);
+    if (G.subject && G.attempted) recordMastery(S.category, G.subject, G.correct, G.attempted);
     recordSession(pct);
     renderGameResults(pct);
     showScreen('gameResultsScreen');
@@ -1319,7 +1439,7 @@
 
   function renderGameResults(pct) {
     const body = document.getElementById('gameResultsBody');
-    const gameTitle = G.kind === 'tf' ? '✓✗ True or False Blitz' : '⚡ Speed Round';
+    const gameTitle = G.kind === 'tf' ? '✓✗ True or False Blitz' : G.kind === 'sort' ? '🗂 Category Sort' : '⚡ Speed Round';
     const verdict = G.bestStreak >= 8 ? "🔥 On fire! Incredible streak." : G.bestStreak >= 4 ? "Nice streak — keep it up!" : "Good round — try to build a streak next time.";
     body.innerHTML = `
       <div class="game-result-hero">
@@ -1338,7 +1458,9 @@
         <button class="btn btn-ghost btn-block" id="gameHomeBtn">Back to Home</button>
       </div>`;
     document.getElementById('gameReplayBtn').addEventListener('click', () => {
-      if (G.kind === 'tf') startTrueFalseBlitz(G.subject); else startSpeedRound(G.subject);
+      if (G.kind === 'tf') startTrueFalseBlitz(G.subject);
+      else if (G.kind === 'sort') startCategorySort();
+      else startSpeedRound(G.subject);
     });
     document.getElementById('gameHomeBtn').addEventListener('click', () => { showScreen('homeScreen'); renderDashboardNudge(); updateStudyPlanBanner(); });
   }
