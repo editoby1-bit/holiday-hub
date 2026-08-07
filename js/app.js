@@ -44,6 +44,11 @@
   const SEEN_KEY = 'hh-seen-v1';
   const MASTERY_KEY = 'hh-mastery-v1';
   const PLAN_KEY = 'hh-study-plan-v1';
+  const AI_CREDITS_KEY = 'hh-ai-credits-v1';
+  const FREE_TRIAL_CREDITS = 3;
+  const PAYSTACK_KEY = 'pk_live_5d12ee2a90900116dc222107e059a06214c085ff';
+  const AI_CREDIT_PACK_SIZE = 10;
+  const AI_CREDIT_PACK_PRICE_KOBO = 50000; // ₦500
 
   function getBank(cat) {
     return cat === 'junior' ? JUNIOR_BANK : SENIOR_BANK;
@@ -227,6 +232,84 @@
   }
 
   /* ────────────────────────────────
+     GAME EXPLAINER
+     Shown once before entering any of the 4 games, so a first-time
+     player knows the rules before the clock starts. Skipped on
+     "Play Again" and "Continue where you left off" — only shown on
+     first entry via the picker/hub.
+  ──────────────────────────────── */
+  const GAME_EXPLAINERS = {
+    game: {
+      icon: '⚡', title: 'Speed Round',
+      rules: [
+        '60 seconds on the clock — answer as many as you can.',
+        'Tap the correct option out of 4 choices.',
+        'Build a streak for bonus points: 3+ in a row = 2×, 5+ = 3×.',
+      ],
+    },
+    tf: {
+      icon: '✓✗', title: 'True or False Blitz',
+      rules: [
+        '60 seconds — read the statement, tap True or False.',
+        'Statements are pulled from real past questions.',
+        'Same streak bonus scoring as Speed Round.',
+      ],
+    },
+    memory: {
+      icon: '🧠', title: 'Memory Match',
+      rules: [
+        'Flip two tiles at a time to find matching term + definition pairs.',
+        'No pressure — the clock just tracks your time, it doesn\'t count down.',
+        'Fewer moves means a better memory score.',
+      ],
+    },
+    sort: {
+      icon: '🗂', title: 'Category Sort',
+      rules: [
+        'A term appears — tap the subject bucket it belongs to.',
+        'Terms are mixed from up to 4 subjects at once.',
+        '60 seconds, same streak bonus scoring as the other games.',
+      ],
+    },
+  };
+
+  let _pendingGame = null;
+
+  function initGameExplainer() {
+    document.getElementById('geClose').addEventListener('click', () => {
+      document.getElementById('gameExplainerModal').classList.add('hidden');
+    });
+    document.getElementById('geStartBtn').addEventListener('click', () => {
+      document.getElementById('gameExplainerModal').classList.add('hidden');
+      if (!_pendingGame) return;
+      const { mode, subject } = _pendingGame;
+      if (mode === 'game') startSpeedRound(subject);
+      else if (mode === 'tf') startTrueFalseBlitz(subject);
+      else if (mode === 'memory') startMemoryMatch(subject);
+      else if (mode === 'sort') startCategorySort();
+    });
+  }
+
+  function showGameExplainer(mode, subject) {
+    const info = GAME_EXPLAINERS[mode];
+    if (!info) return;
+    _pendingGame = { mode, subject };
+    document.getElementById('geIcon').textContent = info.icon;
+    document.getElementById('geTitle').textContent = info.title;
+    const subjectLine = document.getElementById('geSubjectLine');
+    if (subject) {
+      const meta = subjectMeta(subject);
+      subjectLine.textContent = `${meta.icon} ${SUBJECT_LABELS[subject] || subject}`;
+      subjectLine.classList.remove('hidden');
+    } else {
+      subjectLine.textContent = 'Mixed subjects';
+      subjectLine.classList.remove('hidden');
+    }
+    document.getElementById('geRules').innerHTML = info.rules.map(r => `<li>${r}</li>`).join('');
+    document.getElementById('gameExplainerModal').classList.remove('hidden');
+  }
+
+  /* ────────────────────────────────
      STATS
   ──────────────────────────────── */
   function loadStats() {
@@ -302,7 +385,7 @@
     document.querySelectorAll('.game-choice-card').forEach(card => {
       card.addEventListener('click', () => {
         const game = card.dataset.game;
-        if (game === 'sort') startCategorySort();
+        if (game === 'sort') showGameExplainer('sort', null);
         else openSubjectPicker(game);
       });
     });
@@ -608,9 +691,9 @@
       row.addEventListener('click', () => {
         S.subject = row.dataset.subject;
         if (mode === 'quiz') startQuizSetup(S.subject);
-        else if (mode === 'game') startSpeedRound(S.subject);
-        else if (mode === 'tf') startTrueFalseBlitz(S.subject);
-        else if (mode === 'memory') startMemoryMatch(S.subject);
+        else if (mode === 'game') showGameExplainer('game', S.subject);
+        else if (mode === 'tf') showGameExplainer('tf', S.subject);
+        else if (mode === 'memory') showGameExplainer('memory', S.subject);
         else if (mode === 'library') openLibrary(S.subject);
         else startRevision(S.subject);
       });
@@ -1403,6 +1486,10 @@
   async function maybeTopUpQueue() {
     const remaining = G.queue.length - G.idx;
     if (remaining >= GAME_MIN_QUEUE || G.fetchingMore) return;
+    // Silent — no paywall mid-game. If there's no credit left, the game
+    // just plays out with whatever static questions remain, which is
+    // still a full free experience, just without the AI variety boost.
+    if (!hasAICredit()) return;
     G.fetchingMore = true;
     try {
       const bank = getBank(S.category)[G.subject];
@@ -1418,6 +1505,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok && data.questions.length) {
+        consumeAICredit();
         G.queue = G.queue.concat(data.questions);
       }
     } catch (err) {
@@ -1808,6 +1896,10 @@
     const pool = bank.objective.slice();
 
     const useAiBoost = document.getElementById('qcAiBoost').checked;
+    if (useAiBoost && !hasAICredit()) {
+      showAIPaywall();
+      return;
+    }
     const { questions: staticQuestions } = pickQuestions(S.category, subject, pool, count);
     let questions = staticQuestions;
 
@@ -1830,6 +1922,7 @@
         });
         const aiData = await aiRes.json().catch(() => ({}));
         if (aiRes.ok && aiData.ok && aiData.questions.length) {
+          consumeAICredit();
           // Replace recycled/seen static questions first with AI ones, keep unseen static.
           const combined = staticQuestions.concat(aiData.questions);
           shuffleArray(combined);
@@ -2173,6 +2266,152 @@
   }
 
   /* ────────────────────────────────
+     AI CREDITS & PAYWALL
+     Free trial of 3 AI responses, then ₦500 unlocks 10 more. Gates:
+     Project Helper replies, "Explain Differently", and Challenge's
+     AI Boost. Does NOT gate anything else — Revision, Quiz, all 4
+     games, and Study Library stay fully free and uncapped. Reuses
+     the same live Paystack key and /api/verify-payment endpoint as
+     My Exams App / My JAMB App (same merchant account).
+  ──────────────────────────────── */
+  function getAICredits() {
+    const data = loadSafe(AI_CREDITS_KEY, null);
+    if (data === null) {
+      const fresh = { credits: FREE_TRIAL_CREDITS, totalPurchased: 0 };
+      saveSafe(AI_CREDITS_KEY, fresh);
+      return fresh;
+    }
+    return data;
+  }
+
+  function hasAICredit() {
+    return getAICredits().credits > 0;
+  }
+
+  /** Call only after a successful AI response — never charge for a failed call. */
+  function consumeAICredit() {
+    const data = getAICredits();
+    if (data.credits <= 0) return false;
+    data.credits -= 1;
+    saveSafe(AI_CREDITS_KEY, data);
+    updateAICreditBadges();
+    return true;
+  }
+
+  function addAICredits(n) {
+    const data = getAICredits();
+    data.credits += n;
+    data.totalPurchased += n;
+    saveSafe(AI_CREDITS_KEY, data);
+    updateAICreditBadges();
+  }
+
+  function updateAICreditBadges() {
+    const n = getAICredits().credits;
+    document.querySelectorAll('.ai-credit-badge').forEach(el => {
+      el.textContent = `✨ ${n} left`;
+    });
+  }
+
+  function showAIPaywall() {
+    document.getElementById('aiPaywallModal').classList.remove('hidden');
+  }
+  function hideAIPaywall() {
+    document.getElementById('aiPaywallModal').classList.add('hidden');
+  }
+
+  function initAIPaywall() {
+    document.getElementById('paywallClose').addEventListener('click', hideAIPaywall);
+    document.getElementById('paywallLaterBtn').addEventListener('click', hideAIPaywall);
+    document.getElementById('paywallPayBtn').addEventListener('click', purchaseAICredits);
+  }
+
+  /**
+   * Simple email-collection sheet, needed before a Paystack charge.
+   * Mirrors the pattern already used in My Exams App / My JAMB App.
+   */
+  function getEmailViaModal() {
+    return new Promise((resolve) => {
+      let overlay = document.getElementById('emailModalOverlay');
+      if (overlay) overlay.remove();
+
+      overlay = document.createElement('div');
+      overlay.id = 'emailModalOverlay';
+      overlay.className = 'overlay';
+      overlay.innerHTML = `
+        <div class="sheet">
+          <h3 class="sheet-title">Enter your email</h3>
+          <p class="sheet-sub">We'll send your payment receipt here.</p>
+          <input id="emailModalInput" type="email" inputmode="email" autocomplete="email" class="text-input" placeholder="you@example.com" style="margin-top:1rem;"/>
+          <p id="emailModalError" class="hidden" style="color:var(--red); font-size:.78rem; margin-top:.4rem;">Please enter a valid email address.</p>
+          <div style="display:flex; gap:.6rem; margin-top:1.1rem;">
+            <button id="emailModalCancel" class="btn btn-ghost" style="flex:1;">Cancel</button>
+            <button id="emailModalContinue" class="btn btn-primary" style="flex:1;">Continue</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      const cleanup = (val) => { overlay.remove(); resolve(val); };
+      document.getElementById('emailModalCancel').addEventListener('click', () => cleanup(null));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+
+      const submit = () => {
+        const input = document.getElementById('emailModalInput');
+        const errEl = document.getElementById('emailModalError');
+        const val = (input.value || '').trim();
+        if (!val.includes('@') || !val.includes('.')) { errEl.classList.remove('hidden'); return; }
+        cleanup(val);
+      };
+      document.getElementById('emailModalContinue').addEventListener('click', submit);
+      document.getElementById('emailModalInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    });
+  }
+
+  async function purchaseAICredits() {
+    const email = await getEmailViaModal();
+    if (!email) return;
+
+    if (typeof window.PaystackPop === 'undefined') {
+      showToast('Payment could not load — check your connection and try again.');
+      return;
+    }
+
+    const handler = window.PaystackPop.setup({
+      key: PAYSTACK_KEY,
+      email,
+      amount: AI_CREDIT_PACK_PRICE_KOBO,
+      currency: 'NGN',
+      ref: 'HH-AI-' + Date.now(),
+      metadata: { custom_fields: [
+        { display_name: 'Product', variable_name: 'product', value: 'Holiday Hub — 10 AI responses' },
+      ]},
+      onClose() {},
+      callback(response) {
+        (async () => {
+          showToast('Confirming payment…');
+          try {
+            const res = await fetch(API_BASE + '/api/verify-payment', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference: response.reference }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.verified) {
+              showToast('Could not confirm payment yet. If you were charged, contact support with reference: ' + response.reference, 5000);
+              return;
+            }
+            addAICredits(AI_CREDIT_PACK_SIZE);
+            hideAIPaywall();
+            showToast(`✅ ${AI_CREDIT_PACK_SIZE} AI responses unlocked!`, 3000);
+          } catch (err) {
+            showToast('Could not confirm payment — contact support with reference: ' + response.reference, 5000);
+          }
+        })();
+      },
+    });
+    handler.openIframe();
+  }
+
+  /* ────────────────────────────────
      STUDY MODE — "EXPLAIN DIFFERENTLY"
      When the canned explanation doesn't land, this reuses the same
      AI tutor endpoint that powers the Project Helper to give the
@@ -2183,6 +2422,9 @@
     const resultEl = document.getElementById('explainDifferentlyResult');
     const btn = document.getElementById('explainDifferentlyBtn');
     if (!resultEl || !btn) return;
+
+    if (!hasAICredit()) { showAIPaywall(); return; }
+
     btn.disabled = true;
     btn.textContent = 'Thinking of another way to explain it…';
     resultEl.innerHTML = '';
@@ -2197,6 +2439,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.reply) {
+        consumeAICredit();
         resultEl.innerHTML = `<div class="explain-ai-bubble">${safe(data.reply)}</div>`;
         btn.classList.add('hidden');
       } else {
@@ -2231,6 +2474,9 @@
     const subjects = ['Any subject', 'Mathematics', 'English', 'Science', 'Social Studies', 'ICT'];
 
     body.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:flex-end; margin-bottom:.4rem;">
+        <span class="ai-credit-badge">✨ ${getAICredits().credits} left</span>
+      </div>
       <div class="ph-subject-chip-row" id="phChips">
         ${subjects.map(s => `<button class="ph-chip ${s === phSubject ? 'active' : ''}" data-s="${s}">${s}</button>`).join('')}
       </div>
@@ -2262,6 +2508,9 @@
     const input = document.getElementById('phInput');
     const text = input.value.trim();
     if (!text) return;
+
+    if (!hasAICredit()) { showAIPaywall(); return; }
+
     input.value = '';
 
     phMessages.push({ role: 'user', text });
@@ -2280,6 +2529,7 @@
       const data = await res.json().catch(() => ({}));
       phMessages.pop(); // remove loading bubble
       if (res.ok && data.reply) {
+        consumeAICredit();
         phMessages.push({ role: 'ai', text: data.reply });
       } else {
         phMessages.push({ role: 'ai', text: "I couldn't reach the server just now — check your connection and try again." });
@@ -2298,6 +2548,24 @@
   }
 
   /* ────────────────────────────────
+     LAUNCH BANNER (hidden until enabled)
+     Flip SHOW_LAUNCH_BANNER to true when ready to announce My Exams
+     App / My JAMB App. Edit launchBannerTitle/Sub text in index.html
+     (or via JS below) closer to the actual launch date.
+  ──────────────────────────────── */
+  const SHOW_LAUNCH_BANNER = false;
+  function initLaunchBanner() {
+    const banner = document.getElementById('launchBanner');
+    if (!banner) return;
+    const dismissed = loadSafe('hh-launch-banner-dismissed', false);
+    if (SHOW_LAUNCH_BANNER && !dismissed) banner.classList.remove('hidden');
+    document.getElementById('launchBannerClose')?.addEventListener('click', () => {
+      banner.classList.add('hidden');
+      saveSafe('hh-launch-banner-dismissed', true);
+    });
+  }
+
+  /* ────────────────────────────────
      INIT
   ──────────────────────────────── */
   document.addEventListener('DOMContentLoaded', () => {
@@ -2307,10 +2575,14 @@
     loadStats();
     renderCountdown();
     initChallengeModule();
+    initGameExplainer();
     initProjectHelper();
+    initAIPaywall();
+    initLaunchBanner();
     checkIncomingChallengeLink();
     renderDashboardNudge();
     updateStudyPlanBanner();
+    updateAICreditBadges();
     const planBanner = document.getElementById('studyPlanBanner');
     if (planBanner) planBanner.addEventListener('click', openStudyPlan);
   });

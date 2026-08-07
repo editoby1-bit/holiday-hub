@@ -198,6 +198,31 @@ same thing — read a question, tap an option. Fixed at the interaction level, n
   background) before it shipped, and confirmed the Speed Round subject badge fix actually
   renders correctly.
 
+## New in this update — AI Credits, Paywall, and Launch Banner (hidden)
+
+- **Freemium AI model**: every new student gets 3 free AI responses (Project Helper, Explain
+  Differently, Challenge AI Boost all draw from the same pool). Once used up, a paywall offers
+  10 more for ₦500 via Paystack. **Everything else stays free and uncapped** — Revision, Quiz,
+  all 4 games, Study Library. This matches the plan discussed: free spreads the app fast, AI is
+  the one thing that costs anything.
+- **Same Paystack account, same verification endpoint**: reuses the live key and the shared
+  `/api/verify-payment` endpoint your other apps already use — no new backend work needed for
+  this. Transaction references are prefixed `HH-AI-` so you can tell Holiday Hub payments apart
+  from My Exams App / My JAMB App ones in your Paystack dashboard.
+- **Game AI top-up stays silent**: Speed Round/True-False/Sort's background AI question
+  refresh (when the static pool runs low mid-game) quietly skips itself if credits are at zero
+  — it never interrupts a 60-second round with a paywall. The free game experience is never
+  degraded by the payment system.
+- **Launch banner built, hidden by default**: a "Coming Soon — My Exams App / My JAMB App"
+  banner exists on the home screen but is off (`SHOW_LAUNCH_BANNER = false` near the bottom of
+  `js/app.js`). Flip it to `true` and edit the title/text in `index.html`
+  (`#launchBannerTitle` / `#launchBannerSub`) when you're ready to announce — no other changes
+  needed. Dismissible per-user once shown (remembers via localStorage).
+- **⚠️ Payment flow tested up to the Paystack handoff only** (paywall trigger → email modal →
+  correct amount/reference/email passed to `PaystackPop.setup`) — verified via simulation,
+  since I can't complete a real charge or hit your live `/api/verify-payment` endpoint from
+  here. **A real test payment on a real device is essential before this goes live.**
+
 **Open items before this is fully launch-ready:**
 - **Holiday end date**: the countdown in `js/app.js` (`HOLIDAY_END`) is set to a placeholder
   date (Sept 14, 2026) — confirm the actual resumption date and I'll update it.

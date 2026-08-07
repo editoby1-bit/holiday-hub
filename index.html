@@ -15,6 +15,7 @@
   <link rel="manifest" href="manifest.json"/>
   <link rel="icon" type="image/png" href="icon-192.png"/>
   <link rel="apple-touch-icon" href="icon-192.png"/>
+  <script src="https://js.paystack.co/v1/inline.js"></script>
 </head>
 <body>
 <div id="app">
@@ -53,6 +54,18 @@
     </div>
 
     <div id="dashboardNudge" class="dashboard-nudge-wrap"></div>
+
+    <!-- Hidden by default. Flip SHOW_LAUNCH_BANNER to true in js/app.js when
+         ready to announce My Exams App / My JAMB App. Edit the text below
+         (or via JS) closer to launch. -->
+    <div class="launch-banner hidden" id="launchBanner">
+      <button class="launch-banner-close" id="launchBannerClose">✕</button>
+      <div class="lb-icon">🚀</div>
+      <div class="lb-text">
+        <h3 id="launchBannerTitle">Coming Soon</h3>
+        <p id="launchBannerSub">The full WAEC/NECO and JAMB experience — My Exams App and My JAMB App, launching soon.</p>
+      </div>
+    </div>
 
     <div class="study-plan-banner" id="studyPlanBanner">
       <div class="spb-icon">🗓</div>
@@ -330,6 +343,32 @@
         <button class="btn btn-primary btn-block" id="qcNewChallengeBtn" style="margin-top:.75rem;">New Challenge →</button>
         <button class="btn btn-ghost btn-block" id="qcDoneBtn" style="margin-top:.5rem;">Done</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ GAME EXPLAINER (before starting a game) ════════════════ -->
+  <div id="gameExplainerModal" class="overlay hidden">
+    <div class="sheet">
+      <button class="sheet-close" id="geClose">✕</button>
+      <div class="ge-icon" id="geIcon">🎮</div>
+      <h3 class="sheet-title" id="geTitle">Game</h3>
+      <p class="ge-subject" id="geSubjectLine"></p>
+      <ul class="ge-rules" id="geRules"></ul>
+      <button class="btn btn-primary btn-block" id="geStartBtn">Start →</button>
+    </div>
+  </div>
+
+  <!-- ════════════════ AI CREDITS PAYWALL ════════════════ -->
+  <div id="aiPaywallModal" class="overlay hidden">
+    <div class="sheet">
+      <button class="sheet-close" id="paywallClose">✕</button>
+      <div class="paywall-icon">✨</div>
+      <h3 class="sheet-title" style="text-align:center;">You're out of AI responses</h3>
+      <p class="sheet-sub" style="text-align:center;">Unlock 10 more AI responses for Project Helper, Explain Differently, and AI-boosted challenges.</p>
+      <div class="paywall-price">₦500 <span>for 10 AI responses</span></div>
+      <button class="btn btn-primary btn-block" id="paywallPayBtn">Pay ₦500 →</button>
+      <button class="btn btn-ghost btn-block" id="paywallLaterBtn" style="margin-top:.5rem;">Maybe later</button>
+      <p class="paywall-note">Everything else in Holiday Hub — Revision, Quiz, all 4 games, Study Library — stays free, no limit.</p>
     </div>
   </div>
 
