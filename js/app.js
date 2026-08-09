@@ -733,16 +733,12 @@
     body.innerHTML = `
       <div class="study-card">
         <span class="study-subject-tag" style="background:${meta.color}1a; color:${meta.color};">${meta.icon} ${SUBJECT_LABELS[S.subject] || S.subject}</span>
-        <div class="study-q-text">${q.question}</div>
-        <div class="recall-prompt" id="recallPrompt">
-          <p>Think through your answer first, then reveal the options.</p>
-          <button class="btn btn-primary btn-block" id="revealBtn">👁 Reveal Options</button>
-        </div>
-        <div id="revOptions" class="hidden">
+        <div class="study-q-text">${safe(q.question)}</div>
+        <div id="revOptions">
           ${q.options.map((opt, i) => `
             <button class="study-option" data-i="${i}">
               <span class="study-option-letter">${letters[i]}</span>
-              <span>${opt}</span>
+              <span>${safe(opt)}</span>
             </button>`).join('')}
         </div>
         <div id="revExplanation" class="study-explanation hidden">
@@ -760,11 +756,6 @@
           <button class="btn btn-primary" id="revNext" ${S.idx === S.questions.length - 1 ? 'disabled' : ''}>Next →</button>
         </div>
       </div>`;
-
-    document.getElementById('revealBtn').addEventListener('click', () => {
-      document.getElementById('recallPrompt').classList.add('hidden');
-      document.getElementById('revOptions').classList.remove('hidden');
-    });
 
     body.querySelectorAll('.study-option').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -899,12 +890,12 @@
     body.innerHTML = `
       <div class="exam-card">
         <div class="exam-q-number">${S.idx + 1}</div>
-        <div class="exam-q-text">${q.question}</div>
+        <div class="exam-q-text">${safe(q.question)}</div>
         <div class="exam-options" id="quizOptions">
           ${q.options.map((opt, i) => `
             <button class="exam-opt ${selected === i ? 'selected' : ''}" data-i="${i}">
               <span class="exam-opt-bubble">${letters[i]}</span>
-              <span>${opt}</span>
+              <span>${safe(opt)}</span>
             </button>`).join('')}
         </div>
         <div class="exam-nav-row">
@@ -939,7 +930,7 @@
       markSeen(S.category, S.subject, S.questions.map(q => q.id));
       recordMastery(S.category, S.subject, correct, total);
     }
-    if (S._challengeCode) saveChallengeScore(correct, total);
+    if (S._challengeCode) saveChallengeScore(correct, total, S.answers);
 
     renderResults(correct, total, pct);
     showScreen('resultsScreen');
@@ -984,7 +975,7 @@
     body.innerHTML = `
       <div class="study-card">
         <span class="study-subject-tag" style="background:${meta.color}1a; color:${meta.color};">${meta.icon} ${SUBJECT_LABELS[S.subject] || S.subject}</span>
-        <div class="study-q-text">${q.question}</div>
+        <div class="study-q-text">${safe(q.question)}</div>
         <div>
           ${q.options.map((opt, i) => {
             let cls = '';
@@ -992,13 +983,13 @@
             else if (i === userAns) cls = 's-incorrect';
             return `<div class="study-option ${cls}">
               <span class="study-option-letter">${letters[i]}</span>
-              <span>${opt}</span>
+              <span>${safe(opt)}</span>
             </div>`;
           }).join('')}
         </div>
         <div class="study-explanation">
           <div class="study-explanation-label">Why</div>
-          <div>${q.explanation || 'No explanation available.'}</div>
+          <div>${safe(q.explanation || 'No explanation available.')}</div>
         </div>
         <div class="q-nav-row">
           <button class="btn btn-ghost" id="revwPrev" ${S.idx === 0 ? 'disabled' : ''}>← Previous</button>
@@ -1203,10 +1194,10 @@
     const letters = ['A', 'B', 'C', 'D'];
     body.innerHTML = `
       <div class="game-q-meta">Question ${G.idx + 1}${q.aiGenerated ? ' · ✨' : ''}</div>
-      <div class="game-q-text">${q.question}</div>
+      <div class="game-q-text">${safe(q.question)}</div>
       <div class="game-options" id="gameOptions">
         ${q.options.map((opt, i) => `
-          <button class="game-opt" data-i="${i}">${letters[i]}. ${opt}</button>
+          <button class="game-opt" data-i="${i}">${letters[i]}. ${safe(opt)}</button>
         `).join('')}
       </div>`;
 
@@ -1288,7 +1279,7 @@
     const body = document.getElementById('gameBody');
     body.innerHTML = `
       <div class="game-q-meta">Statement ${G.idx + 1}</div>
-      <div class="tf-statement">${item.statement}</div>
+      <div class="tf-statement">${safe(item.statement)}</div>
       <div class="tf-buttons">
         <button class="tf-btn tf-false" data-guess="false">✗<span>False</span></button>
         <button class="tf-btn tf-true" data-guess="true">✓<span>True</span></button>
@@ -1860,13 +1851,14 @@
 
   async function deleteChallenge(code) {
     if (!confirm(`Delete challenge ${code}? Anyone with the code will no longer be able to join.`)) return;
+    const challenges = loadSafe(QC_STORE, {});
+    const hostSecret = challenges[code] && challenges[code].hostSecret;
     try {
       await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'end_challenge', code }),
+        body: JSON.stringify({ action: 'end_challenge', code, hostSecret }),
       });
     } catch (err) {}
-    const challenges = loadSafe(QC_STORE, {});
     if (challenges[code]) { challenges[code].ended = true; saveSafe(QC_STORE, challenges); }
     renderPendingChallenges();
   }
@@ -1957,6 +1949,7 @@
         questionData: questions,
         expires: Date.now() + 24 * 60 * 60 * 1000,
         creator: S.currentUser,
+        hostSecret: data.hostSecret,
         syncMode, scheduledStartAt,
         startedAt: syncMode === 'anytime' ? Date.now() : null,
         createdAt: Date.now(), ended: false,
@@ -2153,10 +2146,12 @@
   async function forceStartChallenge() {
     const code = window._currentChallengeCode;
     if (!code) return;
+    const challenges = loadSafe(QC_STORE, {});
+    const hostSecret = challenges[code] && challenges[code].hostSecret;
     try {
       await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'force_start', code }),
+        body: JSON.stringify({ action: 'force_start', code, hostSecret }),
       });
     } catch (err) {
       showToast('Could not start — check your connection.');
@@ -2203,13 +2198,15 @@
     showScreen('quizScreen');
   }
 
-  async function saveChallengeScore(score, total) {
+  async function saveChallengeScore(score, total, answers) {
     const code = S._challengeCode;
     if (!code) return;
     const pct = Math.round((score / total) * 100);
 
     const challenges = loadSafe(QC_STORE, {});
     if (challenges[code]) {
+      // Optimistic local record for immediate UI — the real, trusted score
+      // comes back from the server below and overwrites this if different.
       challenges[code].scores[S.currentUser] = { score, total, pct, time: new Date().toLocaleTimeString() };
       saveSafe(QC_STORE, challenges);
     }
@@ -2219,7 +2216,7 @@
     try {
       const res = await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit', code, student: S.currentUser, score, total, pct }),
+        body: JSON.stringify({ action: 'submit', code, student: S.currentUser, answers }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) backendScores = data.scores;
