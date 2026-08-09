@@ -392,5 +392,15 @@
 <script src="data/junior/junior-resources.js"></script>
 <script src="data/manifest.js"></script>
 <script src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {
+        // Offline support just won't be available this session — the app
+        // still works fully online, so fail silently rather than alarm anyone.
+      });
+    });
+  }
+</script>
 </body>
 </html>
