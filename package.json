@@ -1,0 +1,9 @@
+{
+  "name": "editoby-api",
+  "version": "1.0.0",
+  "description": "Editoby snap-and-mark API",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}
