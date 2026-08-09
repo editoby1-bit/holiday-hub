@@ -25,9 +25,35 @@
 // scale needs, and challenges auto-expire (see EXPIRE_SECONDS below) so
 // storage never grows unbounded.
 
+// FIXED — two real bugs found in review:
+//
+// 1. 'submit' used to trust whatever score/total/pct the client sent in the
+//    POST body, with nothing checking it against the real questions. Anyone
+//    in devtools could POST a perfect score for themselves. Now the client
+//    sends its selected `answers` array instead, and this endpoint grades it
+//    itself against `challenge.questions` (already stored here since
+//    'create') — the server is the only source of truth for the score.
+//
+// 2. 'force_start', 'remove_participant', and 'end_challenge' were commented
+//    "Host-only" but never actually checked who was calling — the challenge
+//    `code` is deliberately public (that's how friends join), so anyone with
+//    it could call these. Now 'create' returns a one-time `hostSecret` that
+//    only the creator's device keeps; 'end_challenge' and
+//    'remove_participant' require it. 'force_start' is intentionally left
+//    reachable WITHOUT a hostSecret too, but only once the server itself
+//    confirms the waiting-room timeout has genuinely elapsed — that action
+//    is deliberately open to any participant as a stuck-lobby fallback, not
+//    just the host, so it can't require a secret, but it can stop trusting
+//    the client's claim that time is up.
+
+const crypto = require('crypto');
+
 const UPSTASH_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const EXPIRE_SECONDS = 60 * 60 * 24 * 3; // challenges auto-expire after 3 days
+// Must match WAITING_ROOM_TIMEOUT_MS in js/app.js — this is what lets the
+// server independently verify a timeout claim instead of trusting the client.
+const WAITING_ROOM_TIMEOUT_MS = 2 * 60 * 1000;
 
 async function redis(...command) {
   const res = await fetch(UPSTASH_URL, {
@@ -41,6 +67,14 @@ async function redis(...command) {
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data.result;
+}
+
+// Strips the host secret before a challenge object goes back to anyone
+// other than the creator (join/status/leaderboard responses) — it must
+// never leak to a joiner's device.
+function withoutHostSecret(challenge) {
+  const { hostSecret, ...rest } = challenge;
+  return rest;
 }
 
 // Basic shape checks — keeps junk/oversized payloads out of the store
@@ -72,12 +106,14 @@ module.exports = async (req, res) => {
       }
       const mode = ['anytime', 'ready', 'scheduled'].includes(syncMode) ? syncMode : 'anytime';
       const creatorName = String(creator || '').slice(0, 40);
+      const hostSecret = crypto.randomBytes(24).toString('hex');
       const challenge = {
         code, subject, count, questions,
         subjects: Array.isArray(subjects) ? subjects.slice(0, 8) : undefined,
         subjectRanges: subjectRanges && typeof subjectRanges === 'object' ? subjectRanges : undefined,
         time: Number.isFinite(time) ? time : undefined, // minutes, 0/undefined = no limit
         creator: creatorName,
+        hostSecret,
         createdAt: Date.now(),
         scores: {},
         syncMode: mode,
@@ -91,7 +127,9 @@ module.exports = async (req, res) => {
         endedAt: null,
       };
       await redis('SET', `challenge:${code}`, JSON.stringify(challenge), 'EX', EXPIRE_SECONDS);
-      return res.status(200).json({ ok: true, code });
+      // hostSecret goes out ONCE, here, to the creator's own device only —
+      // it is never included in join/status/leaderboard responses.
+      return res.status(200).json({ ok: true, code, hostSecret });
     }
 
     if (action === 'join') {
@@ -133,7 +171,7 @@ module.exports = async (req, res) => {
         }
       }
       await redis('SET', `challenge:${code}`, JSON.stringify(challenge), 'EX', EXPIRE_SECONDS);
-      return res.status(200).json({ ok: true, challenge });
+      return res.status(200).json({ ok: true, challenge: withoutHostSecret(challenge) });
     }
 
     // Waiting-room actions — only meaningful when syncMode isn't 'anytime'.
@@ -184,15 +222,25 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Creator's manual override, and also what any client calls once its own
-    // timeout has elapsed — safe to call more than once, only ever sets
-    // startedAt the first time.
+    // Creator's manual override (with hostSecret), and also what any
+    // participant's device calls once the waiting-room timeout has
+    // genuinely elapsed — the server checks that itself below rather than
+    // trusting the caller's claim, so this stays safely open without a
+    // secret for the timeout-fallback case specifically.
     if (action === 'force_start') {
-      const { code } = req.body;
+      const { code, hostSecret } = req.body;
       if (!isValidCode(code)) return res.status(400).json({ error: 'Invalid code' });
       const raw = await redis('GET', `challenge:${code}`);
       if (!raw) return res.status(404).json({ error: 'Challenge not found or expired' });
       const challenge = JSON.parse(raw);
+
+      const isHost = hostSecret && hostSecret === challenge.hostSecret;
+      const timeoutElapsed = challenge.firstReadyAt
+        && (Date.now() - challenge.firstReadyAt) > WAITING_ROOM_TIMEOUT_MS;
+      if (!isHost && !timeoutElapsed) {
+        return res.status(403).json({ error: 'Not authorized to force-start this challenge yet' });
+      }
+
       if (!challenge.startedAt) {
         challenge.startedAt = Date.now();
         await redis('SET', `challenge:${code}`, JSON.stringify(challenge), 'EX', EXPIRE_SECONDS);
@@ -202,11 +250,14 @@ module.exports = async (req, res) => {
 
     // Host-only: remove a joiner before the challenge has started.
     if (action === 'remove_participant') {
-      const { code, student } = req.body;
+      const { code, student, hostSecret } = req.body;
       if (!isValidCode(code)) return res.status(400).json({ error: 'Invalid code' });
       const raw = await redis('GET', `challenge:${code}`);
       if (!raw) return res.status(404).json({ error: 'Challenge not found or expired' });
       const challenge = JSON.parse(raw);
+      if (!hostSecret || hostSecret !== challenge.hostSecret) {
+        return res.status(403).json({ error: 'Not authorized — host only' });
+      }
       if (challenge.startedAt) return res.status(400).json({ error: 'Challenge already started' });
       delete challenge.participants[String(student || '').slice(0, 40)];
       await redis('SET', `challenge:${code}`, JSON.stringify(challenge), 'EX', EXPIRE_SECONDS);
@@ -215,11 +266,14 @@ module.exports = async (req, res) => {
 
     // Host-only: close a challenge early so nobody can join or resume it.
     if (action === 'end_challenge') {
-      const { code } = req.body;
+      const { code, hostSecret } = req.body;
       if (!isValidCode(code)) return res.status(400).json({ error: 'Invalid code' });
       const raw = await redis('GET', `challenge:${code}`);
       if (!raw) return res.status(404).json({ error: 'Challenge not found or expired' });
       const challenge = JSON.parse(raw);
+      if (!hostSecret || hostSecret !== challenge.hostSecret) {
+        return res.status(403).json({ error: 'Not authorized — host only' });
+      }
       challenge.ended = true;
       challenge.endedAt = Date.now();
       await redis('SET', `challenge:${code}`, JSON.stringify(challenge), 'EX', EXPIRE_SECONDS);
@@ -227,20 +281,33 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'submit') {
-      const { code, student, score, total, pct } = req.body;
+      const { code, student, answers } = req.body;
       if (!isValidCode(code)) return res.status(400).json({ error: 'Invalid code' });
       if (!student || typeof student !== 'string') return res.status(400).json({ error: 'Invalid student name' });
+      if (!Array.isArray(answers)) return res.status(400).json({ error: 'Invalid answers' });
       const raw = await redis('GET', `challenge:${code}`);
       if (!raw) return res.status(404).json({ error: 'Challenge not found or expired' });
       const challenge = JSON.parse(raw);
-      challenge.scores[String(student).slice(0, 40)] = {
-        score: Number(score) || 0,
-        total: Number(total) || 0,
-        pct: Number(pct) || 0,
-        completedAt: Date.now(),
-      };
+
+      const name = String(student).slice(0, 40);
+      if (challenge.scores[name]) {
+        // Already graded — don't let a resubmit overwrite a real result.
+        return res.status(200).json({ ok: true, scores: challenge.scores });
+      }
+
+      // Grade against the SAME questions stored at 'create' time — the
+      // client only tells us which options it picked, never the score.
+      const total = challenge.questions.length;
+      let score = 0;
+      for (let i = 0; i < total; i++) {
+        const picked = Number.isInteger(answers[i]) ? answers[i] : -1;
+        if (picked === challenge.questions[i].answer) score++;
+      }
+      const pct = total ? Math.round((score / total) * 100) : 0;
+
+      challenge.scores[name] = { score, total, pct, completedAt: Date.now() };
       await redis('SET', `challenge:${code}`, JSON.stringify(challenge), 'EX', EXPIRE_SECONDS);
-      return res.status(200).json({ ok: true, scores: challenge.scores });
+      return res.status(200).json({ ok: true, score, total, pct, scores: challenge.scores });
     }
 
     if (action === 'leaderboard') {
