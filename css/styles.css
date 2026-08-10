@@ -512,6 +512,125 @@ a { color:inherit; text-decoration:none; }
 .game-opt.g-incorrect { background: var(--red-bg); border-color: var(--red); color:#a91d1d; }
 .game-opt.g-dim { opacity:.4; }
 
+/* ── Punchy feedback on every answer, shared by every game's option/answer
+   buttons (game-opt, tf-true/false, sort-bucket, scramble tiles) ── */
+.g-correct, .tf-correct, .sort-bucket.sort-correct {
+  animation: correct-pulse .45s ease;
+}
+.g-incorrect, .tf-incorrect, .sort-bucket.sort-incorrect {
+  animation: wrong-shake .4s ease;
+}
+@keyframes correct-pulse {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.06); box-shadow: 0 0 0 6px var(--green-bg); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes wrong-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+.wrong-shake-once { animation: wrong-shake .4s ease; }
+
+/* ── Score/streak digits pop when they change, instead of silently
+   updating — makes every correct answer feel like it landed ── */
+.game-stat span.stat-pop { animation: stat-pop .35s cubic-bezier(.34,1.56,.64,1); }
+@keyframes stat-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); color: var(--gold); }
+  100% { transform: scale(1); }
+}
+
+/* ── Lightweight particle burst — small colored dots fired from wherever
+   the player tapped, pure CSS/DOM, no canvas or library needed ── */
+.fx-particle {
+  position: fixed; width:7px; height:7px; border-radius:50%;
+  pointer-events:none; z-index:700;
+  animation: particle-burst .6s cubic-bezier(.2,.8,.4,1) forwards;
+}
+@keyframes particle-burst {
+  0%   { transform: translate(0,0) scale(1);   opacity:1; }
+  100% { transform: var(--fx-end) scale(.3);   opacity:0; }
+}
+
+/* ── Streak flash — a real moment now, not just floating text: a soft
+   glow disc behind the text, a bigger pop-and-settle, subtle rotation ── */
+.streak-flash {
+  position: fixed; top: 28%; left:50%; transform: translate(-50%,-50%) scale(1);
+  pointer-events:none; z-index:600; opacity:0;
+  display:flex; flex-direction:column; align-items:center; gap:.15rem;
+  animation: streak-pop .85s cubic-bezier(.22,1.1,.4,1) forwards;
+}
+.streak-flash .sf-glow {
+  position:absolute; width:140px; height:140px; border-radius:50%;
+  background: radial-gradient(circle, var(--coral-glow) 0%, transparent 70%);
+  z-index:-1;
+}
+.streak-flash .sf-text {
+  font-family: var(--serif); font-weight:800; font-size:1.85rem; color: var(--coral);
+  text-shadow: 0 2px 12px var(--coral-glow);
+}
+.streak-flash .sf-bonus {
+  font-size:.85rem; font-weight:700; color: var(--gold);
+}
+@keyframes streak-pop {
+  0%   { opacity:0; transform: translate(-50%,-50%) scale(.5) rotate(-6deg); }
+  22%  { opacity:1; transform: translate(-50%,-50%) scale(1.15) rotate(3deg); }
+  40%  { transform: translate(-50%,-50%) scale(1) rotate(0deg); }
+  75%  { opacity:1; transform: translate(-50%,-50%) scale(1) rotate(0deg); }
+  100% { opacity:0; transform: translate(-50%,-65%) scale(.92) rotate(0deg); }
+}
+
+/* ── Results screen: staggered reveal + confetti burst on a strong round ── */
+.game-result-hero { text-align:center; padding: 1rem 0 1.5rem; position:relative; overflow:visible; }
+.game-result-score.counting { color: var(--coral); }
+.grs-box { opacity:0; animation: grs-in .45s ease forwards; }
+.grs-box:nth-child(1) { animation-delay: .05s; }
+.grs-box:nth-child(2) { animation-delay: .15s; }
+.grs-box:nth-child(3) { animation-delay: .25s; }
+@keyframes grs-in {
+  0%   { opacity:0; transform: translateY(10px) scale(.94); }
+  100% { opacity:1; transform: translateY(0) scale(1); }
+}
+.fx-confetti {
+  position: fixed; width:8px; height:14px; z-index:650; pointer-events:none;
+  animation: confetti-fall 1.6s cubic-bezier(.25,.46,.45,.94) forwards;
+}
+@keyframes confetti-fall {
+  0%   { transform: translateY(0) rotate(0deg); opacity:1; }
+  100% { transform: var(--fx-fall); opacity:0; }
+}
+
+.scramble-built {
+  display:flex; justify-content:center; gap:.35rem; flex-wrap:wrap;
+  margin-bottom:1.5rem; min-height:2.6rem;
+}
+.scramble-slot {
+  width:2rem; height:2.6rem; border-radius:var(--r-s);
+  border-bottom:3px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--serif); font-weight:700; font-size:1.15rem;
+}
+.scramble-slot.filled { border-bottom-color: var(--coral); background: var(--coral-pale); }
+.scramble-built.scramble-correct .scramble-slot { border-bottom-color: var(--green); background: var(--green-bg); color:#0d7a37; }
+.scramble-built.scramble-incorrect .scramble-slot { border-bottom-color: var(--red); background: var(--red-bg); color:#a91d1d; }
+.scramble-letters { display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap; }
+.scramble-letter {
+  width:2.6rem; height:2.6rem; border-radius:var(--r-s);
+  border:2px solid var(--border); background:var(--white);
+  font-family:var(--serif); font-weight:700; font-size:1.1rem;
+  transition: transform .12s ease, opacity .12s ease;
+}
+.scramble-letter:active { transform: scale(.92); }
+.scramble-letter.used { opacity:.25; pointer-events:none; }
+.scramble-def {
+  margin-top:1.1rem; padding:.85rem 1rem; border-radius:var(--r-m);
+  background: var(--coral-pale); font-size:.85rem; color:var(--text-mid);
+  text-align:center; line-height:1.45;
+}
+
 .streak-flash {
   position: fixed; top: 30%; left:50%; transform: translate(-50%,-50%) scale(1);
   font-family: var(--serif); font-weight:800; font-size:2rem; color: var(--coral);

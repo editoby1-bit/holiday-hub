@@ -271,6 +271,38 @@
         '60 seconds, same streak bonus scoring as the other games.',
       ],
     },
+    sequence: {
+      icon: '🔢', title: 'Sequence',
+      rules: [
+        '60 seconds — a pattern of numbers appears with one missing.',
+        'Tap the option that continues the pattern correctly.',
+        'Patterns range from simple counting to multiplying, squares, and Fibonacci-style — same streak bonus scoring.',
+      ],
+    },
+    scramble: {
+      icon: '🔤', title: 'Word Scramble',
+      rules: [
+        '60 seconds — unscramble the letters to spell an academic term.',
+        'Tap letters in order to build your answer — tap again to remove one.',
+        'A short meaning is shown after each word, right or wrong.',
+      ],
+    },
+    formula: {
+      icon: '🔢', title: 'Formula Rush',
+      rules: [
+        '60 seconds — a formula name appears, e.g. "Area of a Circle".',
+        'Tap the matching formula out of 4 choices.',
+        'Pulled straight from your Study Library formula sheets — same streak bonus scoring.',
+      ],
+    },
+    equation: {
+      icon: '🧩', title: 'Equation Builder',
+      rules: [
+        '60 seconds — a simple equation appears, like "3x + 4 = 19".',
+        'Work out x and tap the correct value from 4 options.',
+        'Watch out — some wrong options are common mistakes, not random numbers.',
+      ],
+    },
   };
 
   let _pendingGame = null;
@@ -287,6 +319,10 @@
       else if (mode === 'tf') startTrueFalseBlitz(subject);
       else if (mode === 'memory') startMemoryMatch(subject);
       else if (mode === 'sort') startCategorySort();
+      else if (mode === 'sequence') startSequenceGame();
+      else if (mode === 'scramble') startWordScramble(subject);
+      else if (mode === 'formula') startFormulaRush(subject);
+      else if (mode === 'equation') startEquationBuilder();
     });
   }
 
@@ -385,7 +421,7 @@
     document.querySelectorAll('.game-choice-card').forEach(card => {
       card.addEventListener('click', () => {
         const game = card.dataset.game;
-        if (game === 'sort') showGameExplainer('sort', null);
+        if (game === 'sort' || game === 'sequence' || game === 'equation') showGameExplainer(game, null);
         else openSubjectPicker(game);
       });
     });
@@ -656,6 +692,8 @@
       quiz: 'Quiz — pick a subject', revision: 'Revision — pick a subject',
       game: '⚡ Speed Round — pick a subject', library: '📚 Study Library — pick a subject',
       tf: '✓✗ True or False — pick a subject', memory: '🧠 Memory Match — pick a subject',
+      scramble: '🔤 Word Scramble — pick a subject',
+      formula: '🔢 Formula Rush — pick a subject',
     };
     document.getElementById('subjectScreenTitle').textContent = titles[mode] || 'Pick a subject';
 
@@ -672,6 +710,12 @@
         const r = resBank[key] || { flashcards: [] };
         const pairCount = (r.flashcards || []).length;
         countText = pairCount >= 4 ? `${pairCount} card pairs` : 'Coming soon';
+      } else if (mode === 'scramble') {
+        const words = scrambleWordsFor(S.category, key);
+        countText = words.length >= 4 ? `${words.length} words` : 'Coming soon';
+      } else if (mode === 'formula') {
+        const formulas = formulasFor(S.category, key);
+        countText = formulas.length >= 4 ? `${formulas.length} formulas` : 'Coming soon';
       } else {
         const subj = bank[key];
         const count = subj && subj.objective ? subj.objective.length : 0;
@@ -694,6 +738,8 @@
         else if (mode === 'game') showGameExplainer('game', S.subject);
         else if (mode === 'tf') showGameExplainer('tf', S.subject);
         else if (mode === 'memory') showGameExplainer('memory', S.subject);
+        else if (mode === 'scramble') showGameExplainer('scramble', S.subject);
+        else if (mode === 'formula') showGameExplainer('formula', S.subject);
         else if (mode === 'library') openLibrary(S.subject);
         else startRevision(S.subject);
       });
@@ -1185,7 +1231,8 @@
     }
     if (G.kind === 'tf') renderTFItem();
     else if (G.kind === 'sort') renderSortItem();
-    else renderSpeedItem();
+    else if (G.kind === 'scramble') renderScrambleItem();
+    else renderSpeedItem(); // covers 'speed' AND 'sequence' — sequence items are MCQ-shaped, same render/select path
   }
 
   function renderSpeedItem() {
@@ -1302,6 +1349,7 @@
     const guessedBtn = guessTrue ? trueBtn : falseBtn;
     correctBtn.classList.add('tf-correct');
     if (!isCorrect) guessedBtn.classList.add('tf-incorrect');
+    if (isCorrect) burstParticlesFromElement(correctBtn);
 
     if (isCorrect) {
       G.correct++;
@@ -1314,8 +1362,8 @@
       G.streak = 0;
     }
 
-    document.getElementById('gameScore').textContent = G.score;
-    document.getElementById('gameStreak').textContent = G.streak;
+    pulseStat('gameScore', G.score);
+    pulseStat('gameStreak', G.streak);
 
     setTimeout(() => {
       G.locked = false;
@@ -1333,6 +1381,416 @@
      picker entirely and pulls from Study Library flashcards across
      the current category.
   ──────────────────────────────── */
+  /* ────────────────────────────────
+     FORMULA RUSH
+     Reuses Study Library formula-sheet entries directly (title + formula
+     string) — zero new content authoring, same principle as Word Scramble.
+     MCQ-shaped, so it reuses renderSpeedItem/selectGameAnswer untouched.
+  ──────────────────────────────── */
+  function formulasFor(category, subjectKey) {
+    const resBank = getResourceBank(category);
+    const r = resBank[subjectKey] || { formulas: [] };
+    return (r.formulas || []).filter(f => f.title && f.formula);
+  }
+
+  function formulasMixed(category) {
+    const resBank = getResourceBank(category);
+    let all = [];
+    Object.keys(resBank).forEach(k => {
+      const r = resBank[k];
+      (r.formulas || []).forEach(f => { if (f.title && f.formula) all.push(f); });
+    });
+    return all;
+  }
+
+  function buildFormulaQueue(allFormulas, poolFormulas) {
+    // allFormulas = the ones actually being asked about, poolFormulas = wider
+    // set to draw wrong-answer formula strings from (avoids only ever having
+    // 2-3 formulas to pick wrong answers from on a thin subject).
+    return shuffleArray(allFormulas).map((f, i) => {
+      const distractorPool = poolFormulas.filter(p => p.formula !== f.formula);
+      const distractors = shuffleArray(distractorPool).slice(0, 3).map(p => p.formula);
+      while (distractors.length < 3) distractors.push(f.formula + ' '.repeat(distractors.length + 1)); // pad on a very thin pool — shouldn't normally happen given the length checks before calling this
+      const options = shuffleArray([f.formula, ...distractors]);
+      return {
+        id: 'formula-' + i + '-' + f.title,
+        question: f.title,
+        options,
+        answer: options.indexOf(f.formula),
+      };
+    });
+  }
+
+  function startFormulaRush(subjectKey) {
+    let formulas = formulasFor(S.category, subjectKey);
+    let mixedFallback = false;
+    if (formulas.length < 6) {
+      formulas = formulasMixed(S.category);
+      mixedFallback = true;
+    }
+    if (formulas.length < 4) {
+      showToast('Not enough formula sheet content yet for Formula Rush.');
+      return;
+    }
+    const pool = formulasMixed(S.category); // always draw distractors from the widest pool available, even in non-mixed mode
+    const queue = buildFormulaQueue(formulas.slice(0, 20), pool);
+
+    G = { kind: 'formula', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'formula';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+    setLastActivity(S.category, subjectKey, 'formula');
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    const catLabel = CONTENT_MANIFEST[S.category].label;
+    if (mixedFallback) {
+      document.getElementById('gameSubjectBadge').textContent = `🔢 Mixed Subjects · ${catLabel}`;
+      showToast('Not many formulas in this subject yet — mixing in others.');
+    } else {
+      const meta = subjectMeta(subjectKey);
+      document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
+    }
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  /* ────────────────────────────────
+     EQUATION BUILDER (v1 — scoped down from the original drag-and-drop
+     spec to a solve-for-x MCQ format. The step-by-step draggable-operations
+     version needs real touch-device testing to get right on mobile, which
+     isn't possible in this build environment — safer to ship a reliable v1
+     now and revisit the richer interaction later with on-device testing.
+     Procedurally generated, same zero-content-dependency principle as
+     Sequence — reuses the same MCQ render/select path.
+  ──────────────────────────────── */
+  function generateEquationItem(usedQuestions) {
+    let a, b, x, c, questionText;
+    let attempts = 0;
+    do {
+      attempts++;
+      a = 2 + Math.floor(Math.random() * 8);      // coefficient 2–9
+      x = 2 + Math.floor(Math.random() * 11);      // the answer, 2–12
+      const subtract = Math.random() < 0.5;
+      // Cap b so a*x − b never goes negative or to zero — keeps every
+      // puzzle a clean positive-number equation either way.
+      b = subtract ? (1 + Math.floor(Math.random() * Math.min(20, a * x - 1))) : (1 + Math.floor(Math.random() * 20));
+      c = subtract ? a * x - b : a * x + b;
+      questionText = `${a}x ${subtract ? '−' : '+'} ${b} = ${c}`;
+    } while (usedQuestions.has(questionText) && attempts < 10);
+    usedQuestions.add(questionText);
+
+    const distractors = new Set();
+    // Deliberately include the classic mistake (forgetting to isolate x
+    // correctly) alongside plain nearby wrong answers, so wrong options
+    // are plausible rather than obviously-off.
+    const commonMistakes = [c, Math.round(c / a), x + 1, x - 1, x + 2, x - 2].filter(n => n !== x && n > 0);
+    commonMistakes.forEach(n => { if (distractors.size < 3) distractors.add(n); });
+    let fallback = x + 3;
+    while (distractors.size < 3) { if (fallback !== x && !distractors.has(fallback)) distractors.add(fallback); fallback++; }
+
+    const options = shuffleArray([x, ...Array.from(distractors)]);
+    return {
+      id: 'eq-' + questionText,
+      question: questionText,
+      options: options.map(String),
+      answer: options.indexOf(x),
+    };
+  }
+
+  function startEquationBuilder() {
+    const usedQuestions = new Set();
+    const queue = [];
+    for (let i = 0; i < 25; i++) queue.push(generateEquationItem(usedQuestions));
+
+    G = { kind: 'equation', subject: null, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'equation';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    document.getElementById('gameSubjectBadge').textContent = `🧩 Solve for x · ${CONTENT_MANIFEST[S.category].label}`;
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  /* ────────────────────────────────
+     SEQUENCE
+     Procedurally generated number patterns — deliberately has NO content
+     dependency (no bank, no AI call needed), so it works exactly the same
+     regardless of how thin any subject's question bank is. Items are built
+     in the same {question, options, answer} shape as bank questions, so it
+     reuses renderSpeedItem/selectGameAnswer untouched — no new render path.
+  ──────────────────────────────── */
+  function generateSequenceItem(usedQuestions) {
+    const types = ['arithmetic', 'geometric', 'squares', 'fibonacci'];
+    let seq, answer, questionText;
+    let attempts = 0;
+    do {
+      attempts++;
+      const type = types[Math.floor(Math.random() * types.length)];
+      if (type === 'arithmetic') {
+        const start = 1 + Math.floor(Math.random() * 20);
+        const step = 2 + Math.floor(Math.random() * 8);
+        seq = [0, 1, 2, 3, 4].map(i => start + i * step);
+      } else if (type === 'geometric') {
+        const start = 1 + Math.floor(Math.random() * 5);
+        const ratio = Math.random() < 0.5 ? 2 : 3;
+        seq = [0, 1, 2, 3, 4].map(i => start * Math.pow(ratio, i));
+      } else if (type === 'squares') {
+        const startN = 1 + Math.floor(Math.random() * 6);
+        seq = [0, 1, 2, 3, 4].map(i => Math.pow(startN + i, 2));
+      } else {
+        let a = 1 + Math.floor(Math.random() * 5), b = 1 + Math.floor(Math.random() * 5);
+        seq = [a, b];
+        for (let i = 2; i < 5; i++) seq.push(seq[i - 1] + seq[i - 2]);
+      }
+      answer = seq[4];
+      questionText = seq.slice(0, 4).join(', ') + ', ?';
+    } while (usedQuestions.has(questionText) && attempts < 10);
+    usedQuestions.add(questionText);
+
+    const distractors = new Set();
+    let guardCount = 0;
+    while (distractors.size < 3 && guardCount < 30) {
+      guardCount++;
+      const magnitude = Math.max(2, Math.round(Math.abs(answer) * 0.2)) || 3;
+      const delta = (Math.floor(Math.random() * magnitude * 2) - magnitude) || (Math.random() < 0.5 ? 1 : -1);
+      const wrong = answer + delta;
+      if (wrong !== answer && wrong > 0 && !distractors.has(wrong)) distractors.add(wrong);
+    }
+    // Guard against a thin distractor set on tiny/edge sequences.
+    let fallback = answer + 1;
+    while (distractors.size < 3) { if (fallback !== answer && !distractors.has(fallback)) distractors.add(fallback); fallback++; }
+
+    const options = shuffleArray([answer, ...Array.from(distractors)]);
+    return {
+      id: 'seq-' + questionText,
+      question: questionText,
+      options: options.map(String),
+      answer: options.indexOf(answer),
+    };
+  }
+
+  function shuffleArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function startSequenceGame() {
+    const usedQuestions = new Set();
+    const queue = [];
+    for (let i = 0; i < 25; i++) queue.push(generateSequenceItem(usedQuestions));
+
+    G = { kind: 'sequence', subject: null, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'sequence';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    document.getElementById('gameSubjectBadge').textContent = `🔢 Number Patterns · ${CONTENT_MANIFEST[S.category].label}`;
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  /* ────────────────────────────────
+     WORD SCRAMBLE
+     Reuses Study Library flashcard terms — zero new content authoring
+     needed. Different mechanic from every other game: tap scrambled
+     letters in order to spell the word, rather than picking from options.
+  ──────────────────────────────── */
+  function scrambleWordsFor(category, subjectKey) {
+    const resBank = getResourceBank(category);
+    const r = resBank[subjectKey] || { flashcards: [] };
+    return (r.flashcards || []).filter(c => /^[A-Za-z]+$/.test(c.term) && c.term.length >= 4 && c.term.length <= 12);
+  }
+
+  function scrambleWordsMixed(category) {
+    const resBank = getResourceBank(category);
+    let all = [];
+    Object.keys(resBank).forEach(k => {
+      const r = resBank[k];
+      (r.flashcards || []).forEach(c => {
+        if (/^[A-Za-z]+$/.test(c.term) && c.term.length >= 4 && c.term.length <= 12) all.push(c);
+      });
+    });
+    return all;
+  }
+
+  function scrambleLetters(word) {
+    const upper = word.toUpperCase();
+    let arr = upper.split('');
+    let tries = 0;
+    do {
+      arr = shuffleArray(arr);
+      tries++;
+    } while (arr.join('') === upper && upper.length > 1 && tries < 10);
+    return arr;
+  }
+
+  let _scrambleBuilt = [];
+  let _scrambleLetters = [];
+
+  function startWordScramble(subjectKey) {
+    let words = scrambleWordsFor(S.category, subjectKey);
+    let mixedFallback = false;
+    if (words.length < 6) {
+      words = scrambleWordsMixed(S.category);
+      mixedFallback = true;
+    }
+    if (words.length < 4) {
+      showToast('Not enough Study Library words yet for Word Scramble.');
+      return;
+    }
+    words = shuffleArray(words).slice(0, 15);
+    const queue = words.map((c, i) => ({ id: 'scr-' + i + '-' + c.term, word: c.term.toUpperCase(), definition: c.definition || '' }));
+
+    G = { kind: 'scramble', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'scramble';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+    setLastActivity(S.category, subjectKey, 'scramble');
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    const catLabel = CONTENT_MANIFEST[S.category].label;
+    if (mixedFallback) {
+      document.getElementById('gameSubjectBadge').textContent = `🔤 Mixed Subjects · ${catLabel}`;
+      showToast('Not many words in this subject yet — mixing in others.');
+    } else {
+      const meta = subjectMeta(subjectKey);
+      document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
+    }
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  function renderScrambleItem() {
+    const item = G.queue[G.idx];
+    _scrambleLetters = scrambleLetters(item.word);
+    _scrambleBuilt = [];
+    const body = document.getElementById('gameBody');
+    body.innerHTML = `
+      <div class="game-q-meta">Word ${G.idx + 1}${G.queue.length ? ' / ' + G.queue.length : ''}</div>
+      <div class="scramble-built" id="scrambleBuilt"></div>
+      <div class="scramble-letters" id="scrambleLetters">
+        ${_scrambleLetters.map((l, i) => `<button class="scramble-letter" data-i="${i}">${safe(l)}</button>`).join('')}
+      </div>
+      <button class="btn btn-ghost btn-block" id="scrambleClearBtn" style="margin-top:.75rem;">Clear</button>
+    `;
+    renderScrambleBuilt();
+    document.getElementById('scrambleClearBtn').addEventListener('click', () => {
+      if (G.locked) return;
+      _scrambleBuilt = [];
+      renderScrambleBuilt();
+      body.querySelectorAll('.scramble-letter').forEach(b => b.classList.remove('used'));
+    });
+    body.querySelectorAll('.scramble-letter').forEach(btn => {
+      btn.addEventListener('click', () => tapScrambleLetter(parseInt(btn.dataset.i, 10)));
+    });
+  }
+
+  function renderScrambleBuilt() {
+    const built = document.getElementById('scrambleBuilt');
+    const item = G.queue[G.idx];
+    const filled = _scrambleBuilt.map(i => _scrambleLetters[i]);
+    const slots = item.word.length;
+    built.innerHTML = Array.from({ length: slots }, (_, i) =>
+      `<span class="scramble-slot ${filled[i] ? 'filled' : ''}">${filled[i] ? safe(filled[i]) : ''}</span>`
+    ).join('');
+  }
+
+  function tapScrambleLetter(i) {
+    if (G.locked) return;
+    const btn = document.querySelector(`.scramble-letter[data-i="${i}"]`);
+    if (!btn || btn.classList.contains('used')) return;
+    _scrambleBuilt.push(i);
+    btn.classList.add('used');
+    renderScrambleBuilt();
+
+    const item = G.queue[G.idx];
+    if (_scrambleBuilt.length === item.word.length) checkScrambleAnswer();
+  }
+
+  function checkScrambleAnswer() {
+    G.locked = true;
+    const item = G.queue[G.idx];
+    const guess = _scrambleBuilt.map(i => _scrambleLetters[i]).join('');
+    const isCorrect = guess === item.word;
+    G.attempted++;
+    G.usedIds.push(item.id);
+
+    const built = document.getElementById('scrambleBuilt');
+    built.classList.add(isCorrect ? 'scramble-correct' : 'scramble-incorrect');
+    if (isCorrect) burstParticlesFromElement(built);
+    else built.classList.add('wrong-shake-once');
+
+    const body = document.getElementById('gameBody');
+    const defEl = document.createElement('div');
+    defEl.className = 'scramble-def';
+    defEl.textContent = isCorrect
+      ? (item.definition ? `✓ ${item.word} — ${item.definition}` : `✓ ${item.word}`)
+      : (item.definition ? `The word was ${item.word} — ${item.definition}` : `The word was ${item.word}`);
+    body.appendChild(defEl);
+
+    if (isCorrect) {
+      G.correct++;
+      G.streak++;
+      G.bestStreak = Math.max(G.bestStreak, G.streak);
+      const bonus = G.streak >= 5 ? 3 : G.streak >= 3 ? 2 : 1;
+      G.score += 10 * bonus;
+      if (G.streak > 0 && G.streak % 3 === 0) flashStreak(G.streak);
+    } else {
+      G.streak = 0;
+    }
+    pulseStat('gameScore', G.score);
+    pulseStat('gameStreak', G.streak);
+
+    setTimeout(() => {
+      G.locked = false;
+      G.idx++;
+      if (S.gameTimerSecs > 0) renderGameQuestion();
+    }, 1700); // longer than GAME_LOCK_MS — gives time to actually read the definition
+  }
+
   function buildCategorySortRound() {
     const resBank = getResourceBank(S.category);
     const manifest = CONTENT_MANIFEST[S.category];
@@ -1406,7 +1864,7 @@
     G.usedIds.push(item.id);
 
     document.querySelectorAll('.sort-bucket').forEach(btn => {
-      if (btn.dataset.subject === item.subject) btn.classList.add('sort-correct');
+      if (btn.dataset.subject === item.subject) { btn.classList.add('sort-correct'); if (isCorrect) burstParticlesFromElement(btn); }
       else if (btn.dataset.subject === guessSubject) btn.classList.add('sort-incorrect');
     });
 
@@ -1420,8 +1878,8 @@
     } else {
       G.streak = 0;
     }
-    document.getElementById('gameScore').textContent = G.score;
-    document.getElementById('gameStreak').textContent = G.streak;
+    pulseStat('gameScore', G.score);
+    pulseStat('gameStreak', G.streak);
 
     setTimeout(() => {
       G.locked = false;
@@ -1444,6 +1902,7 @@
       else if (bi === i) btn.classList.add('g-incorrect');
       else btn.classList.add('g-dim');
     });
+    if (isCorrect) burstParticlesFromElement(opts[i]);
 
     if (isCorrect) {
       G.correct++;
@@ -1456,8 +1915,8 @@
       G.streak = 0;
     }
 
-    document.getElementById('gameScore').textContent = G.score;
-    document.getElementById('gameStreak').textContent = G.streak;
+    pulseStat('gameScore', G.score);
+    pulseStat('gameStreak', G.streak);
 
     setTimeout(() => {
       G.locked = false;
@@ -1467,14 +1926,103 @@
   }
 
   function flashStreak(streak) {
+    const bonus = streak >= 5 ? '3× points' : streak >= 3 ? '2× points' : '';
     const el = document.createElement('div');
     el.className = 'streak-flash';
-    el.textContent = `🔥 ${streak} streak!`;
+    el.innerHTML = `
+      <div class="sf-glow"></div>
+      <div class="sf-text">🔥 ${streak} streak!</div>
+      ${bonus ? `<div class="sf-bonus">${bonus}</div>` : ''}
+    `;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 750);
+    setTimeout(() => el.remove(), 900);
+  }
+
+  /* ────────────────────────────────
+     SHARED GAME-FEEL HELPERS
+     Small, dependency-free effects used across every game: a particle
+     burst fired from wherever the player tapped, a pop animation on the
+     score/streak digits when they change, and an animated count-up for
+     the results screen. Pure CSS keyframes + DOM, no canvas/library.
+  ──────────────────────────────── */
+  const FX_COLORS = ['#e85d4a', '#f5b942', '#16a34a', '#2563eb', '#7c3aed'];
+
+  function burstParticles(x, y) {
+    // Respect reduced-motion preferences — skip the effect entirely rather
+    // than force motion on someone who's asked their device to avoid it.
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const count = 10;
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      el.className = 'fx-particle';
+      const angle = (Math.PI * 2 * i) / count + (Math.random() * 0.4 - 0.2);
+      const distance = 40 + Math.random() * 35;
+      const dx = Math.cos(angle) * distance;
+      const dy = Math.sin(angle) * distance;
+      el.style.setProperty('--fx-end', `translate(${dx}px, ${dy}px)`);
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.style.background = FX_COLORS[i % FX_COLORS.length];
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 650);
+    }
+  }
+
+  function burstParticlesFromElement(el) {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    burstParticles(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }
+
+  function pulseStat(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    el.classList.remove('stat-pop');
+    void el.offsetWidth; // force reflow so the animation can retrigger on rapid consecutive updates
+    el.classList.add('stat-pop');
+  }
+
+  function confettiBurst() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const count = 26;
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      el.className = 'fx-confetti';
+      const startX = Math.random() * window.innerWidth;
+      const fallX = (Math.random() - 0.5) * 120;
+      const fallY = window.innerHeight * 0.5 + Math.random() * 200;
+      const rotation = 180 + Math.random() * 540;
+      el.style.setProperty('--fx-fall', `translate(${fallX}px, ${fallY}px) rotate(${rotation}deg)`);
+      el.style.left = startX + 'px';
+      el.style.top = '-20px';
+      el.style.background = FX_COLORS[i % FX_COLORS.length];
+      el.style.animationDelay = (Math.random() * 0.3) + 's';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2200);
+    }
+  }
+
+  function animateCounter(el, target, duration) {
+    if (!el) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = target;
+      return;
+    }
+    const start = performance.now();
+    el.classList.add('counting');
+    function tick(now) {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic — fast start, gentle settle
+      el.textContent = Math.round(target * eased);
+      if (progress < 1) requestAnimationFrame(tick);
+      else { el.textContent = target; el.classList.remove('counting'); }
+    }
+    requestAnimationFrame(tick);
   }
 
   async function maybeTopUpQueue() {
+    if (!G.subject) return; // mixed-subject modes (Sort, Sequence) have no single bank to draw AI top-up from
     const remaining = G.queue.length - G.idx;
     if (remaining >= GAME_MIN_QUEUE || G.fetchingMore) return;
     // Silent — no paywall mid-game. If there's no credit left, the game
@@ -1518,12 +2066,14 @@
 
   function renderGameResults(pct) {
     const body = document.getElementById('gameResultsBody');
-    const gameTitle = G.kind === 'tf' ? '✓✗ True or False Blitz' : G.kind === 'sort' ? '🗂 Category Sort' : '⚡ Speed Round';
+    const gameTitle = G.kind === 'tf' ? '✓✗ True or False Blitz' : G.kind === 'sort' ? '🗂 Category Sort'
+      : G.kind === 'sequence' ? '🔢 Sequence' : G.kind === 'scramble' ? '🔤 Word Scramble'
+      : G.kind === 'formula' ? '🔢 Formula Rush' : G.kind === 'equation' ? '🧩 Equation Builder' : '⚡ Speed Round';
     const verdict = G.bestStreak >= 8 ? "🔥 On fire! Incredible streak." : G.bestStreak >= 4 ? "Nice streak — keep it up!" : "Good round — try to build a streak next time.";
     body.innerHTML = `
       <div class="game-result-hero">
         <div class="game-q-meta">${gameTitle} · ⏱ Time's up!</div>
-        <div class="game-result-score">${G.score}</div>
+        <div class="game-result-score" id="gameResultScore">0</div>
         <div class="game-result-sub">points</div>
         <p style="margin-top:1rem; font-size:.95rem; color:var(--text-mid);">${verdict}</p>
       </div>
@@ -1536,9 +2086,17 @@
         <button class="btn btn-primary btn-block" id="gameReplayBtn">Play Again →</button>
         <button class="btn btn-ghost btn-block" id="gameHomeBtn">Back to Home</button>
       </div>`;
+    animateCounter(document.getElementById('gameResultScore'), G.score, 900);
+    // A strong round earns a confetti moment — good streak or solid accuracy,
+    // not just "any round finished", so it stays a real reward.
+    if (G.bestStreak >= 5 || (G.attempted >= 5 && pct >= 80)) confettiBurst();
     document.getElementById('gameReplayBtn').addEventListener('click', () => {
       if (G.kind === 'tf') startTrueFalseBlitz(G.subject);
       else if (G.kind === 'sort') startCategorySort();
+      else if (G.kind === 'sequence') startSequenceGame();
+      else if (G.kind === 'scramble') startWordScramble(G.subject);
+      else if (G.kind === 'formula') startFormulaRush(G.subject);
+      else if (G.kind === 'equation') startEquationBuilder();
       else startSpeedRound(G.subject);
     });
     document.getElementById('gameHomeBtn').addEventListener('click', () => { showScreen('homeScreen'); renderDashboardNudge(); updateStudyPlanBanner(); });
