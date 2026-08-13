@@ -128,6 +128,99 @@
     saveSafe(SEEN_KEY, all);
   }
 
+  /** Coverage ratio (0–1) of how much of a subject's static question bank
+   * has already been seen. Used to decide when it's honest to tell a
+   * student "you've worked through most of this" rather than showing that
+   * message on a guess or a fixed schedule. */
+  function seenCoverage(category, subject) {
+    const bank = getBank(category)[subject];
+    const total = bank && bank.objective ? bank.objective.length : 0;
+    if (!total) return 0;
+    const seen = getSeenSet(category, subject).size;
+    return Math.min(1, seen / total);
+  }
+
+  const COVERAGE_NUDGE_KEY = 'hh-coverage-nudge-v1';
+  /** Shows the "you've seen most of this" upsell at most once per subject
+   * per day — a student revising the same subject repeatedly shouldn't get
+   * nagged on every single visit once they cross the threshold. */
+  function maybeShowCoverageNudge(category, subject, contextLabel) {
+    const coverage = seenCoverage(category, subject);
+    if (coverage < 0.7) return;
+    const key = seenKey(category, subject);
+    const shown = loadSafe(COVERAGE_NUDGE_KEY, {});
+    const today = new Date().toDateString();
+    if (shown[key] === today) return;
+    shown[key] = today;
+    saveSafe(COVERAGE_NUDGE_KEY, shown);
+    const pct = Math.round(coverage * 100);
+    showActionToast(
+      `You've worked through ${pct}% of ${SUBJECT_LABELS[subject] || subject} ${contextLabel}.`,
+      'Get more with AI →',
+      () => { hasAICredit() ? generateExtraContentForSubject(category, subject) : showAIPaywall(); },
+      5500
+    );
+  }
+
+  async function generateExtraContentForSubject(category, subject) {
+    showToast('Generating fresh questions with AI…', 4000);
+    try {
+      const bank = getBank(category)[subject];
+      const avoid = (bank.objective || []).map(q => q.question).slice(0, 60);
+      const res = await fetch(API_BASE + '/api/generate-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category, subject: SUBJECT_LABELS[subject] || subject,
+          count: 15, avoidQuestions: avoid,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.questions.length) {
+        showToast('Could not generate more questions right now — please try again shortly.');
+        return;
+      }
+      consumeAICredit();
+      // Merges into the live in-memory bank for this session — same
+      // ephemeral pattern already used for game top-up and Challenge's AI
+      // Boost (not written back to the static data files, gone on reload).
+      bank.objective = (bank.objective || []).concat(data.questions);
+      // If the student is mid-Revision on this exact subject, extend their
+      // current session too, rather than making them back out and restart.
+      if (S.mode === 'revision' && S.subject === subject && S.category === category) {
+        S.questions = S.questions.concat(data.questions);
+      }
+      const left = getAICredits().credits;
+      showToast(`✨ ${data.questions.length} new questions added — 1 credit used (${left} left)`, 3800);
+    } catch (err) {
+      showToast('Could not generate more questions right now — please try again shortly.');
+    }
+  }
+
+  const LIBRARY_NUDGE_KEY = 'hh-library-nudge-v1';
+  /** Library has no "seen" tracking (unlike the question bank), so this
+   * uses total content depth instead of a coverage ratio — a different,
+   * honest signal for a different situation. Routes to Project Helper
+   * (which already exists and already consumes credits) rather than
+   * promising AI-generated flashcards/formula sheets, which the backend
+   * doesn't actually support yet — see HANDOFF.md §17 before building
+   * that generation capability for real. */
+  function maybeShowThinLibraryNudge(category, subject, totalItems) {
+    if (totalItems >= 10) return;
+    const key = seenKey(category, subject);
+    const shown = loadSafe(LIBRARY_NUDGE_KEY, {});
+    const today = new Date().toDateString();
+    if (shown[key] === today) return;
+    shown[key] = today;
+    saveSafe(LIBRARY_NUDGE_KEY, shown);
+    showActionToast(
+      `Offline material for ${SUBJECT_LABELS[subject] || subject} is limited right now.`,
+      'Ask AI Tutor →',
+      () => openProjectHelper(),
+      5500
+    );
+  }
+
+
   /**
    * Picks `count` questions from `pool` (array of question objects with
    * an `id`), preferring ones the user hasn't seen yet for this
@@ -178,6 +271,44 @@
   }
   window.showInfoToast = showToast;
 
+  /** A toast with a tappable call-to-action — for gentle upsell nudges that
+   * should never block play. Tapping the action button runs onAction();
+   * tapping anywhere else just dismisses it, same as it would time out on
+   * its own. Used sparingly and only where a person can act on it. */
+  function showActionToast(msg, actionLabel, onAction, ms) {
+    const host = document.getElementById('toastHost');
+    const t = document.createElement('div');
+    t.className = 'toast toast-action';
+    t.innerHTML = `<span class="ta-msg">${safe(msg)}</span><button class="ta-btn">${safe(actionLabel)}</button>`;
+    t.querySelector('.ta-btn').addEventListener('click', () => { t.remove(); onAction(); });
+    host.appendChild(t);
+    const timer = setTimeout(() => t.remove(), ms || 5000);
+    t.addEventListener('click', (e) => { if (e.target === t) { clearTimeout(timer); t.remove(); } });
+  }
+
+  /** A persistent inline banner — unlike showActionToast, this does NOT
+   * auto-disappear. Meant for real end-of-content moments (last flashcard,
+   * end of a Revision queue, post-game results) where the person has
+   * actually stopped to look at the screen, so it's fair to ask for a
+   * couple seconds of attention rather than something they have to catch
+   * before it vanishes. Always dismissible with a real close button.
+   * Returns the created element in case the caller wants to remove it
+   * itself later (e.g. before re-rendering the same container). */
+  function renderExpandBanner(container, message, actionLabel, onAction) {
+    const el = document.createElement('div');
+    el.className = 'expand-banner';
+    el.innerHTML = `
+      <button class="expand-banner-close" aria-label="Dismiss">✕</button>
+      <div class="expand-banner-icon">✨</div>
+      <div class="expand-banner-text">${safe(message)}</div>
+      <button class="expand-banner-btn">${safe(actionLabel)}</button>
+    `;
+    el.querySelector('.expand-banner-close').addEventListener('click', () => el.remove());
+    el.querySelector('.expand-banner-btn').addEventListener('click', () => { el.remove(); onAction(); });
+    container.appendChild(el);
+    return el;
+  }
+
   /* ────────────────────────────────
      SCREEN ROUTING
   ──────────────────────────────── */
@@ -194,7 +325,7 @@
         if (!confirm('Leave this quiz? Your progress will be lost.')) return;
         stopTimer();
       }
-      if (S.mode === 'game' || S.mode === 'tf' || S.mode === 'sort') {
+      if (S.mode === 'game' || S.mode === 'tf' || S.mode === 'sort' || S.mode === 'scramble' || S.mode === 'formula' || S.mode === 'sequence' || S.mode === 'equation') {
         if (!confirm('Leave the game? Your score will be lost.')) return;
         stopGameTimer();
       }
@@ -202,7 +333,12 @@
         if (!confirm('Leave Memory Match? Your progress will be lost.')) return;
         stopMemoryTimer();
       }
-      showScreen('subjectScreen');
+      // Sort/Sequence/Equation Builder skip the subject picker entirely
+      // (mixed-subject or content-free games) — sending them "back" to
+      // subjectScreen would land on a screen they never actually visited.
+      // Games Hub is their real previous screen.
+      const skippedPicker = S.mode === 'sort' || S.mode === 'sequence' || S.mode === 'equation';
+      showScreen(skippedPicker ? 'gamesHubScreen' : 'subjectScreen');
       return;
     }
     const map = { home: 'homeScreen', subject: 'subjectScreen' };
@@ -308,9 +444,11 @@
   let _pendingGame = null;
 
   function initGameExplainer() {
+    const modal = document.getElementById('gameExplainerModal');
     document.getElementById('geClose').addEventListener('click', () => {
-      document.getElementById('gameExplainerModal').classList.add('hidden');
+      modal.classList.add('hidden');
     });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
     document.getElementById('geStartBtn').addEventListener('click', () => {
       document.getElementById('gameExplainerModal').classList.add('hidden');
       if (!_pendingGame) return;
@@ -431,7 +569,6 @@
     if (action === 'revision') openSubjectPicker('revision');
     else if (action === 'quiz') openSubjectPicker('quiz');
     else if (action === 'challenge') openQuizChallenge();
-    else if (action === 'friend-study') openQuizChallenge(true);
     else if (action === 'project') openProjectHelper();
     else if (action === 'games') { showScreen('gamesHubScreen'); }
     else if (action === 'library') openSubjectPicker('library');
@@ -712,10 +849,10 @@
         countText = pairCount >= 4 ? `${pairCount} card pairs` : 'Coming soon';
       } else if (mode === 'scramble') {
         const words = scrambleWordsFor(S.category, key);
-        countText = words.length >= 4 ? `${words.length} words` : 'Coming soon';
+        countText = words.length >= 6 ? `${words.length} words` : 'Mixed subjects';
       } else if (mode === 'formula') {
         const formulas = formulasFor(S.category, key);
-        countText = formulas.length >= 4 ? `${formulas.length} formulas` : 'Coming soon';
+        countText = formulas.length >= 6 ? `${formulas.length} formulas` : 'Mixed subjects';
       } else {
         const subj = bank[key];
         const count = subj && subj.objective ? subj.objective.length : 0;
@@ -765,6 +902,7 @@
     document.getElementById('revisionTitle').textContent = SUBJECT_LABELS[subjectKey] || subjectKey;
     renderRevisionQuestion();
     showScreen('revisionScreen');
+    maybeShowCoverageNudge(S.category, subjectKey, 'of the offline questions');
   }
 
   function renderRevisionQuestion() {
@@ -829,6 +967,15 @@
 
     document.getElementById('revPrev').addEventListener('click', () => { S.idx--; renderRevisionQuestion(); });
     document.getElementById('revNext').addEventListener('click', () => { S.idx++; renderRevisionQuestion(); });
+
+    if (S.idx === S.questions.length - 1) {
+      renderExpandBanner(
+        body,
+        `That's the last of ${S.questions.length} ${SUBJECT_LABELS[S.subject] || S.subject} questions for now.`,
+        hasAICredit() ? 'Generate more with AI →' : 'Unlock more with AI →',
+        () => { hasAICredit() ? generateExtraContentForSubject(S.category, S.subject) : showAIPaywall(); }
+      );
+    }
   }
 
   /* ────────────────────────────────
@@ -1071,6 +1218,9 @@
     setLastActivity(S.category, subjectKey, 'library');
     document.getElementById('libraryTitle').textContent = SUBJECT_LABELS[subjectKey] || subjectKey;
 
+    const totalItems = (res.flashcards || []).length + (res.formulas || []).length + (res.notes || []).length;
+    maybeShowThinLibraryNudge(S.category, subjectKey, totalItems);
+
     const tabLabels = { flashcards: '🗂 Flashcards', formulas: '∑ Formulas', notes: '📝 Notes' };
     document.getElementById('libraryTabs').innerHTML = tabs.map(t =>
       `<button class="lib-tab ${t === LIB.tab ? 'active' : ''}" data-tab="${t}">${tabLabels[t]}</button>`).join('');
@@ -1141,6 +1291,15 @@
       showToast('Shuffled!', 1200);
       renderFlashcards(body, cards);
     });
+
+    if (LIB.idx === LIB.cards.length - 1) {
+      renderExpandBanner(
+        body,
+        `That's all ${LIB.cards.length} ${SUBJECT_LABELS[LIB.subject] || LIB.subject} flashcards for now.`,
+        'Ask AI Tutor for more →',
+        () => openProjectHelper()
+      );
+    }
   }
 
   function renderFormulas(body, formulas) {
@@ -1675,7 +1834,7 @@
     words = shuffleArray(words).slice(0, 15);
     const queue = words.map((c, i) => ({ id: 'scr-' + i + '-' + c.term, word: c.term.toUpperCase(), definition: c.definition || '' }));
 
-    G = { kind: 'scramble', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    G = { kind: 'scramble', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false, attemptLog: [] };
     S.mode = 'scramble';
     S.gameTimerSecs = GAME_DURATION_SECS;
     setLastActivity(S.category, subjectKey, 'scramble');
@@ -1709,14 +1868,21 @@
     _scrambleBuilt = [];
     const body = document.getElementById('gameBody');
     body.innerHTML = `
-      <div class="game-q-meta">Word ${G.idx + 1}${G.queue.length ? ' / ' + G.queue.length : ''}</div>
-      <div class="scramble-built" id="scrambleBuilt"></div>
-      <div class="scramble-letters" id="scrambleLetters">
-        ${_scrambleLetters.map((l, i) => `<button class="scramble-letter" data-i="${i}">${safe(l)}</button>`).join('')}
+      <div class="scramble-layout">
+        <div class="scramble-main">
+          <div class="game-q-meta">Word ${G.idx + 1}${G.queue.length ? ' / ' + G.queue.length : ''}</div>
+          <div class="scramble-built" id="scrambleBuilt"></div>
+          <p class="scramble-hint">Tap a placed letter to remove just that one</p>
+          <div class="scramble-letters" id="scrambleLetters">
+            ${_scrambleLetters.map((l, i) => `<button class="scramble-letter" data-i="${i}">${safe(l)}</button>`).join('')}
+          </div>
+          <button class="btn btn-ghost btn-block" id="scrambleClearBtn" style="margin-top:.75rem;">Clear all</button>
+        </div>
+        <div class="scramble-attempted" id="scrambleAttempted"></div>
       </div>
-      <button class="btn btn-ghost btn-block" id="scrambleClearBtn" style="margin-top:.75rem;">Clear</button>
     `;
     renderScrambleBuilt();
+    renderScrambleAttempted();
     document.getElementById('scrambleClearBtn').addEventListener('click', () => {
       if (G.locked) return;
       _scrambleBuilt = [];
@@ -1728,14 +1894,49 @@
     });
   }
 
+  // Pinned side list of every word attempted so far this round — most
+  // recent first, so a player can glance back at what they've already
+  // gotten right or wrong without it interrupting the current word.
+  function renderScrambleAttempted() {
+    const el = document.getElementById('scrambleAttempted');
+    if (!el) return;
+    if (!G.attemptLog || !G.attemptLog.length) {
+      el.innerHTML = '<div class="scramble-attempted-empty">Solved words appear here</div>';
+      return;
+    }
+    el.innerHTML = G.attemptLog.slice().reverse().map(a =>
+      `<div class="scramble-chip ${a.correct ? 'sc-correct' : 'sc-wrong'}" title="${safe(a.word)}">
+        <span class="sc-mark">${a.correct ? '✓' : '✕'}</span><span class="sc-word">${safe(a.word)}</span>
+      </div>`
+    ).join('');
+  }
+
   function renderScrambleBuilt() {
     const built = document.getElementById('scrambleBuilt');
     const item = G.queue[G.idx];
     const filled = _scrambleBuilt.map(i => _scrambleLetters[i]);
     const slots = item.word.length;
     built.innerHTML = Array.from({ length: slots }, (_, i) =>
-      `<span class="scramble-slot ${filled[i] ? 'filled' : ''}">${filled[i] ? safe(filled[i]) : ''}</span>`
+      `<span class="scramble-slot ${filled[i] ? 'filled' : ''}" data-pos="${i}">${filled[i] ? safe(filled[i]) : ''}</span>`
     ).join('');
+    built.querySelectorAll('.scramble-slot.filled').forEach(slot => {
+      slot.addEventListener('click', () => removeScrambleLetterAt(parseInt(slot.dataset.pos, 10)));
+    });
+  }
+
+  /** Removes exactly the one letter at this position in the built word —
+   * not a full reset. Everything after it shifts left to fill the gap
+   * (same as backspacing in the middle of a text field), and the tapped
+   * letter tile becomes available again. Lets a player fix one wrong
+   * letter without losing everything else they'd already placed. */
+  function removeScrambleLetterAt(pos) {
+    if (G.locked) return;
+    if (pos < 0 || pos >= _scrambleBuilt.length) return;
+    const tileIndex = _scrambleBuilt[pos];
+    _scrambleBuilt.splice(pos, 1);
+    const tileBtn = document.querySelector(`.scramble-letter[data-i="${tileIndex}"]`);
+    if (tileBtn) tileBtn.classList.remove('used');
+    renderScrambleBuilt();
   }
 
   function tapScrambleLetter(i) {
@@ -1757,6 +1958,8 @@
     const isCorrect = guess === item.word;
     G.attempted++;
     G.usedIds.push(item.id);
+    G.attemptLog.push({ word: item.word, correct: isCorrect });
+    renderScrambleAttempted();
 
     const built = document.getElementById('scrambleBuilt');
     built.classList.add(isCorrect ? 'scramble-correct' : 'scramble-incorrect');
@@ -2025,10 +2228,17 @@
     if (!G.subject) return; // mixed-subject modes (Sort, Sequence) have no single bank to draw AI top-up from
     const remaining = G.queue.length - G.idx;
     if (remaining >= GAME_MIN_QUEUE || G.fetchingMore) return;
-    // Silent — no paywall mid-game. If there's no credit left, the game
-    // just plays out with whatever static questions remain, which is
-    // still a full free experience, just without the AI variety boost.
-    if (!hasAICredit()) return;
+    if (!hasAICredit()) {
+      // Still no blocking paywall mid-game — the game plays out fine on
+      // whatever static questions remain either way. But now the player
+      // actually knows why the variety dried up and how to fix it, once
+      // per round rather than nagging on every low-queue check.
+      if (!G._toldNoCredits) {
+        G._toldNoCredits = true;
+        showActionToast('Running low on fresh questions.', 'Unlock more →', () => showAIPaywall());
+      }
+      return;
+    }
     G.fetchingMore = true;
     try {
       const bank = getBank(S.category)[G.subject];
@@ -2046,6 +2256,8 @@
       if (res.ok && data.ok && data.questions.length) {
         consumeAICredit();
         G.queue = G.queue.concat(data.questions);
+        const left = getAICredits().credits;
+        showToast(`✨ +${data.questions.length} fresh AI questions added — 1 credit used (${left} left)`, 3200);
       }
     } catch (err) {
       // Silent fail — game just ends a little early if this doesn't work, no need to interrupt play.
@@ -2090,6 +2302,19 @@
     // A strong round earns a confetti moment — good streak or solid accuracy,
     // not just "any round finished", so it stays a real reward.
     if (G.bestStreak >= 5 || (G.attempted >= 5 && pct >= 80)) confettiBurst();
+    // Only shown if the player actually ran into the credit wall this round
+    // (flagged by maybeTopUpQueue) — not a generic upsell on every result.
+    // Inserted before the action buttons, not after — otherwise someone
+    // could tap "Play Again" before ever seeing it.
+    if (G._toldNoCredits) {
+      const banner = renderExpandBanner(
+        body,
+        `Running low on AI-generated questions in ${gameTitle}.`,
+        'Unlock more →',
+        () => showAIPaywall()
+      );
+      body.insertBefore(banner, document.querySelector('.result-actions'));
+    }
     document.getElementById('gameReplayBtn').addEventListener('click', () => {
       if (G.kind === 'tf') startTrueFalseBlitz(G.subject);
       else if (G.kind === 'sort') startCategorySort();
@@ -2323,14 +2548,12 @@
       `<option value="${key}">${SUBJECT_LABELS[key] || key}</option>`).join('');
   }
 
-  function openQuizChallenge(isStudyMode) {
+  function openQuizChallenge() {
     if (!S.currentUser) { showToast('Please enter a name first.'); return; }
     populateChallengeSubjects();
     showQcPanel('qcCreate');
     document.getElementById('quizChallengeModal').classList.remove('hidden');
     renderPendingChallenges();
-    const sheetTitle = document.querySelector('#qcCreate .sheet-title');
-    if (sheetTitle) sheetTitle.textContent = isStudyMode ? 'Study Together' : 'Challenge a Friend';
   }
   window.openQuizChallenge = openQuizChallenge;
 
@@ -2477,6 +2700,8 @@
           const combined = staticQuestions.concat(aiData.questions);
           shuffleArray(combined);
           questions = combined.slice(0, count);
+          const left = getAICredits().credits;
+          showToast(`✨ AI Boost added ${aiData.questions.length} fresh questions — 1 credit used (${left} left)`, 3200);
         } else {
           showToast('Could not generate AI questions right now — using the question bank instead.');
         }

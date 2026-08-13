@@ -233,6 +233,46 @@ a { color:inherit; text-decoration:none; }
   font-size: .82rem; box-shadow: var(--sh-l);
   z-index: 999; max-width: 90%; text-align:center;
 }
+.toast-action {
+  display:flex; align-items:center; gap:.6rem; text-align:left;
+  padding: .7rem .8rem .7rem 1rem;
+}
+.toast-action .ta-msg { flex:1; line-height:1.35; }
+.toast-action .ta-btn {
+  flex-shrink:0; background: var(--coral); color:var(--white);
+  font-size:.72rem; font-weight:700; padding:.4rem .7rem; border-radius: var(--r-s);
+  white-space:nowrap;
+}
+
+.expand-banner {
+  position: relative; margin: 1.25rem 0 .5rem;
+  background: linear-gradient(135deg, var(--coral-pale), rgba(245,185,66,.08));
+  border: 1px solid var(--coral-glow);
+  border-radius: var(--r-l);
+  padding: 1.1rem 1.25rem 1.15rem;
+  text-align:center;
+  animation: banner-in .35s cubic-bezier(.2,.9,.4,1);
+}
+@keyframes banner-in {
+  from { opacity:0; transform: translateY(8px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+.expand-banner-close {
+  position:absolute; top:.6rem; right:.6rem;
+  width:26px; height:26px; border-radius:50%;
+  background: rgba(10,22,40,.08);
+  display:flex; align-items:center; justify-content:center;
+  font-size:.7rem; color:var(--text-dim);
+}
+.expand-banner-icon { font-size:1.4rem; margin-bottom:.35rem; }
+.expand-banner-text {
+  font-size:.85rem; color:var(--text-mid); line-height:1.45;
+  margin: 0 auto .8rem; max-width: 30ch;
+}
+.expand-banner-btn {
+  background: var(--coral); color:var(--white);
+  font-size:.8rem; font-weight:700; padding:.6rem 1.3rem; border-radius: var(--r-p);
+}
 .overlay {
   position: fixed; inset:0; background: rgba(10,22,40,.55);
   display:flex; align-items:flex-end; justify-content:center;
@@ -252,6 +292,19 @@ a { color:inherit; text-decoration:none; }
   width:32px; height:32px; border-radius:50%;
   background: rgba(10,22,40,.06);
   display:flex; align-items:center; justify-content:center;
+}
+
+/* Game Explainer is a centered dialog, not a bottom sheet — reads better
+   as "here's what you're about to do" than an anchored drawer. */
+#gameExplainerModal { align-items:center; padding: 0 1.25rem; }
+#gameExplainerModal .sheet {
+  border-radius: var(--r-l);
+  max-width: 420px;
+  animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
+}
+@keyframes dialog-pop {
+  from { transform: scale(.94) translateY(6px); opacity:0; }
+  to   { transform: scale(1) translateY(0); opacity:1; }
 }
 
 /* ══════════════════════════════
@@ -613,7 +666,15 @@ a { color:inherit; text-decoration:none; }
   display:flex; align-items:center; justify-content:center;
   font-family:var(--serif); font-weight:700; font-size:1.15rem;
 }
-.scramble-slot.filled { border-bottom-color: var(--coral); background: var(--coral-pale); }
+.scramble-slot.filled {
+  border-bottom-color: var(--coral); background: var(--coral-pale);
+  cursor:pointer; transition: transform .1s ease, opacity .1s ease;
+}
+.scramble-slot.filled:active { transform: scale(.88); opacity:.6; }
+.scramble-hint {
+  text-align:center; font-size:.68rem; color:var(--text-dim);
+  margin: -.9rem 0 .75rem;
+}
 .scramble-built.scramble-correct .scramble-slot { border-bottom-color: var(--green); background: var(--green-bg); color:#0d7a37; }
 .scramble-built.scramble-incorrect .scramble-slot { border-bottom-color: var(--red); background: var(--red-bg); color:#a91d1d; }
 .scramble-letters { display:flex; justify-content:center; gap:.5rem; flex-wrap:wrap; }
@@ -630,6 +691,27 @@ a { color:inherit; text-decoration:none; }
   background: var(--coral-pale); font-size:.85rem; color:var(--text-mid);
   text-align:center; line-height:1.45;
 }
+
+.scramble-layout { display:flex; gap:.75rem; align-items:flex-start; }
+.scramble-main { flex:1; min-width:0; }
+.scramble-attempted {
+  width: 92px; flex-shrink:0; max-height: 320px; overflow-y:auto;
+  display:flex; flex-direction:column; gap:.4rem;
+  padding-top: 1.6rem; /* roughly aligns with the built-word row, not the "Word N/M" label */
+}
+.scramble-attempted-empty {
+  font-size:.65rem; color:var(--text-dim); text-align:center; line-height:1.4; padding:.5rem .25rem;
+}
+.scramble-chip {
+  display:flex; align-items:center; gap:.3rem;
+  padding:.35rem .45rem; border-radius:var(--r-s);
+  font-size:.62rem; font-weight:600; line-height:1.15;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.scramble-chip.sc-correct { background: var(--green-bg); color:#0d7a37; }
+.scramble-chip.sc-wrong   { background: var(--red-bg); color:#a91d1d; }
+.sc-mark { flex-shrink:0; }
+.sc-word { overflow:hidden; text-overflow:ellipsis; }
 
 .streak-flash {
   position: fixed; top: 30%; left:50%; transform: translate(-50%,-50%) scale(1);
