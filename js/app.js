@@ -140,6 +140,42 @@
     return Math.min(1, seen / total);
   }
 
+  const COMPLETED_KEY = 'hh-completed-v1';
+  /** Tracks whether a person has been all the way through a piece of
+   * content before — one full pass, not a coverage percentage. Far more
+   * reliably triggerable than a 90%-of-the-whole-bank threshold, which
+   * needed dozens of questions answered in one sitting to ever fire. This
+   * fires the SECOND time someone opens the same subject's same content
+   * type, having already reached the end of it once already. */
+  function completedKey(category, subject, type) { return `${category}:${subject}:${type}`; }
+  function markCompleted(category, subject, type) {
+    const all = loadSafe(COMPLETED_KEY, {});
+    all[completedKey(category, subject, type)] = Date.now();
+    saveSafe(COMPLETED_KEY, all);
+  }
+  function wasCompletedBefore(category, subject, type) {
+    const all = loadSafe(COMPLETED_KEY, {});
+    return !!all[completedKey(category, subject, type)];
+  }
+
+  /** A genuinely blocking modal, not a scroll-past inline banner — only
+   * used for this one deliberately strong signal (real repeat
+   * completion). Reused across Library/Quiz/Revision with a fresh
+   * callback each time via .onclick (always replaces any previous
+   * handler, no leaked/stacked listeners across repeated shows). */
+  function showCompletedModal(message, onGetMore) {
+    document.getElementById('completedSub').textContent = message;
+    const modal = document.getElementById('completedModal');
+    modal.classList.remove('hidden');
+    document.getElementById('completedGetMoreBtn').onclick = () => {
+      modal.classList.add('hidden');
+      hasAICredit() ? onGetMore() : showAIPaywall();
+    };
+    document.getElementById('completedContinueBtn').onclick = () => modal.classList.add('hidden');
+    document.getElementById('completedClose').onclick = () => modal.classList.add('hidden');
+    modal.onclick = (e) => { if (e.target === modal) modal.classList.add('hidden'); };
+  }
+
   const COVERAGE_NUDGE_KEY = 'hh-coverage-nudge-v1';
   /** Shows the "you've seen most of this" upsell at most once per subject
    * per day — a student revising the same subject repeatedly shouldn't get
@@ -990,7 +1026,14 @@
     document.getElementById('revisionTitle').textContent = SUBJECT_LABELS[subjectKey] || subjectKey;
     renderRevisionQuestion();
     showScreen('revisionScreen');
-    maybeShowCoverageNudge(S.category, subjectKey, 'of the offline questions');
+    if (wasCompletedBefore(S.category, subjectKey, 'revision')) {
+      showCompletedModal(
+        `You've already been through ${SUBJECT_LABELS[subjectKey] || subjectKey}'s revision questions before.`,
+        () => generateExtraContentForSubject(S.category, subjectKey)
+      );
+    } else {
+      maybeShowCoverageNudge(S.category, subjectKey, 'of the offline questions');
+    }
   }
 
   function renderRevisionQuestion() {
@@ -1057,6 +1100,7 @@
     document.getElementById('revNext').addEventListener('click', () => { S.idx++; renderRevisionQuestion(); });
 
     if (S.idx === S.questions.length - 1) {
+      markCompleted(S.category, S.subject, 'revision');
       renderExpandBanner(
         body,
         `That's the last of ${S.questions.length} ${SUBJECT_LABELS[S.subject] || S.subject} questions for now.`,
@@ -1108,17 +1152,13 @@
       launchQuiz(subjectKey, count, mins);
     });
 
-    // A much higher bar than Revision's 70% "worked through most of it"
-    // nudge — this is specifically for "you've basically already done all
-    // of these," a stronger, more specific claim, so it needs a higher
-    // threshold to stay honest.
-    const coverage = seenCoverage(S.category, subjectKey);
-    if (coverage >= 0.9) {
-      renderExpandBanner(
-        body,
-        `You've already tried ${Math.round(coverage * 100)}% of ${SUBJECT_LABELS[subjectKey] || subjectKey}'s question set.`,
-        hasAICredit() ? 'Get a fresh set with AI →' : 'Unlock a 2-Day AI Boost →',
-        () => { hasAICredit() ? generateExtraContentForSubject(S.category, subjectKey) : showAIPaywall(); }
+    // Reliably triggerable, unlike the old coverage-percentage version:
+    // fires the moment they've quizzed this exact subject to completion
+    // once before, not after grinding through 90% of a huge bank.
+    if (wasCompletedBefore(S.category, subjectKey, 'quiz')) {
+      showCompletedModal(
+        `You've already been through ${SUBJECT_LABELS[subjectKey] || subjectKey}'s question set before.`,
+        () => generateExtraContentForSubject(S.category, subjectKey)
       );
     }
   }
@@ -1224,6 +1264,7 @@
     if (S.subject) {
       markSeen(S.category, S.subject, S.questions.map(q => q.id));
       recordMastery(S.category, S.subject, correct, total);
+      if (S.mode === 'quiz') markCompleted(S.category, S.subject, 'quiz');
     }
     if (S._challengeCode) saveChallengeScore(correct, total, S.answers);
 
@@ -1331,12 +1372,32 @@
         LIB.tab = btn.dataset.tab;
         LIB.idx = 0; LIB.flipped = false;
         document.querySelectorAll('.lib-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === LIB.tab));
-        renderLibraryContent();
+        checkAndRenderLibraryTab(subjectKey);
       });
     });
 
-    renderLibraryContent();
     showScreen('libraryScreen');
+    checkAndRenderLibraryTab(subjectKey);
+  }
+
+  /** Shared by openLibrary and the tab-switch handler — checking
+   * completion must happen BEFORE render, since formulas/notes mark
+   * themselves completed synchronously during render (they show as a
+   * full list, no "last card" moment to wait for like flashcards has).
+   * Checking after render would always see that just-set flag and
+   * incorrectly fire on the very first visit. */
+  function checkAndRenderLibraryTab(subjectKey) {
+    const alreadyCompleted = wasCompletedBefore(S.category, subjectKey, 'library-' + LIB.tab);
+    renderLibraryContent();
+    if (alreadyCompleted) {
+      const tabNoun = { flashcards: 'flashcards', formulas: 'formula sheet', notes: 'notes' }[LIB.tab] || 'material';
+      showCompletedModal(
+        `You've already been through these ${SUBJECT_LABELS[subjectKey] || subjectKey} ${tabNoun} before.`,
+        () => LIB.tab === 'flashcards'
+          ? generateExtraFlashcardsForSubject(S.category, subjectKey)
+          : openProjectHelper() // formulas/notes generation isn't built yet — see HANDOFF §22
+      );
+    }
   }
 
   function renderLibraryContent() {
@@ -1404,6 +1465,7 @@
     }
 
     if (LIB.idx === LIB.cards.length - 1) {
+      markCompleted(S.category, LIB.subject, 'library-flashcards');
       renderExpandBanner(
         body,
         `That's all ${LIB.cards.length} ${SUBJECT_LABELS[LIB.subject] || LIB.subject} flashcards for now.`,
@@ -1421,6 +1483,10 @@
         <div class="formula-expr">${f.formula}</div>
         <div class="formula-note">${f.note || ''}</div>
       </div>`).join('');
+    // Shown as a full list, not stepped through card-by-card like
+    // flashcards — so "viewed this tab" is the honest equivalent of
+    // "reached the end" for this particular layout.
+    markCompleted(S.category, LIB.subject, 'library-formulas');
   }
 
   function renderNotes(body, notes) {
@@ -1430,6 +1496,7 @@
         <div class="note-topic">${n.topic}</div>
         <div class="note-summary">${n.summary}</div>
       </div>`).join('');
+    markCompleted(S.category, LIB.subject, 'library-notes');
   }
 
   /* ────────────────────────────────

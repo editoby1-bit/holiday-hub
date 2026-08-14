@@ -323,6 +323,19 @@ a { color:inherit; text-decoration:none; }
   to   { transform: scale(1) translateY(0); opacity:1; }
 }
 
+/* "Already completed this" is a deliberately blocking modal, not a
+   scroll-past banner — it's only shown for a genuinely earned signal
+   (real repeat completion), so it's allowed to actually interrupt. */
+#completedModal { align-items:center; padding: 0 1.25rem; }
+#completedModal .sheet {
+  border-radius: var(--r-l);
+  max-width: 400px;
+  text-align:center;
+  border-top: 4px solid var(--coral);
+  animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
+}
+#completedModal .ge-icon { font-size:2.2rem; margin-bottom:.5rem; }
+
 /* ══════════════════════════════
    BOTTOM NAV
 ══════════════════════════════ */
