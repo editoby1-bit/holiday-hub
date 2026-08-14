@@ -349,6 +349,10 @@ a { color:inherit; text-decoration:none; }
 .subject-row-name { font-weight:600; font-size:.95rem; }
 .subject-row-count { font-size:.72rem; color:var(--text-dim); margin-top:.1rem; }
 .subject-row-arrow { color:var(--text-dim); font-size:1.1rem; }
+.subject-row-disabled { opacity:.45; box-shadow:none; }
+.subject-row-disabled .subject-row-arrow { visibility:hidden; }
+.subject-row-mixed { border-color: var(--coral-glow); background: var(--coral-pale); margin-bottom:.6rem; }
+.subject-row-mixed .subject-row-name { color: var(--coral-dk); }
 
 .topbar-progress { font-size:.8rem; color:var(--text-dim); font-weight:600; white-space:nowrap; }
 
@@ -928,6 +932,20 @@ a { color:inherit; text-decoration:none; }
 .nudge-text h4 { font-size:.86rem; font-weight:700; margin-bottom:.15rem; }
 .nudge-text p { font-size:.74rem; color:var(--text-dim); }
 .nudge-arrow { color:var(--text-dim); font-size:1rem; }
+
+.nudge-card.nudge-ai-promo {
+  position:relative; cursor:pointer;
+  background: linear-gradient(135deg, var(--coral-pale), rgba(245,185,66,.10));
+  border-left-color: var(--coral);
+}
+.nudge-ai-promo-close {
+  position:absolute; top:.5rem; right:.5rem;
+  width:22px; height:22px; border-radius:50%;
+  background: rgba(10,22,40,.08);
+  display:flex; align-items:center; justify-content:center;
+  font-size:.62rem; color:var(--text-dim);
+}
+.nudge-card.nudge-ai-promo .nudge-text { padding-right:1.2rem; }
 
 /* ══════════════════════════════
    STUDY PLAN BANNER + SCREEN

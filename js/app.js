@@ -199,11 +199,11 @@
   const LIBRARY_NUDGE_KEY = 'hh-library-nudge-v1';
   /** Library has no "seen" tracking (unlike the question bank), so this
    * uses total content depth instead of a coverage ratio — a different,
-   * honest signal for a different situation. Routes to Project Helper
-   * (which already exists and already consumes credits) rather than
-   * promising AI-generated flashcards/formula sheets, which the backend
-   * doesn't actually support yet — see HANDOFF.md §17 before building
-   * that generation capability for real. */
+   * honest signal for a different situation. Now generates real flashcards
+   * via AI (see generateExtraFlashcardsForSubject below) instead of just
+   * opening Project Helper's chat — that was a mismatch between what the
+   * button promised ("more materials") and what it actually did (opened a
+   * conversation you'd have to steer yourself). */
   function maybeShowThinLibraryNudge(category, subject, totalItems) {
     if (totalItems >= 10) return;
     const key = seenKey(category, subject);
@@ -214,10 +214,43 @@
     saveSafe(LIBRARY_NUDGE_KEY, shown);
     showActionToast(
       `Offline material for ${SUBJECT_LABELS[subject] || subject} is limited right now.`,
-      'Ask AI Tutor →',
-      () => openProjectHelper(),
+      'Get more with AI →',
+      () => { hasAICredit() ? generateExtraFlashcardsForSubject(category, subject) : showAIPaywall(); },
       5500
     );
+  }
+
+  async function generateExtraFlashcardsForSubject(category, subject) {
+    showToast('Generating fresh flashcards with AI…', 4000);
+    try {
+      const resBank = getResourceBank(category);
+      const r = resBank[subject] || (resBank[subject] = { flashcards: [], formulas: [], notes: [] });
+      const avoid = (r.flashcards || []).map(c => c.term).slice(0, 60);
+      const res = await fetch(API_BASE + '/api/generate-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category, subject: SUBJECT_LABELS[subject] || subject,
+          count: 10, avoidQuestions: avoid, contentType: 'flashcards',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.flashcards || !data.flashcards.length) {
+        showToast('Could not generate more flashcards right now — please try again shortly.');
+        return;
+      }
+      consumeAICredit();
+      // Same ephemeral-for-this-session pattern as generateExtraContentForSubject.
+      r.flashcards = (r.flashcards || []).concat(data.flashcards);
+      // If mid-Library on this exact subject's flashcard tab, refresh in place.
+      if (LIB.subject === subject && LIB.tab === 'flashcards') {
+        LIB.cards = LIB.cards.concat(data.flashcards);
+        renderFlashcards(document.getElementById('libraryBody'), LIB.cards);
+      }
+      const left = getAICredits().credits;
+      showToast(`✨ ${data.flashcards.length} new flashcards added — 1 credit used (${left} left)`, 3800);
+    } catch (err) {
+      showToast('Could not generate more flashcards right now — please try again shortly.');
+    }
   }
 
 
@@ -612,6 +645,20 @@
         </button>`);
     }
 
+    // General, always-available awareness card — not tied to any specific
+    // "you've run out" moment like the other nudges elsewhere, just a
+    // standing reminder that the option exists. Dismissible, but not gone
+    // forever — reappears after a few days rather than nagging daily.
+    if (shouldShowGeneralAICard()) {
+      cards.push(`
+        <div class="nudge-card nudge-ai-promo" data-nudge="ai-promo">
+          <button class="nudge-ai-promo-close" aria-label="Dismiss">✕</button>
+          <span class="nudge-icon">✨</span>
+          <span class="nudge-text"><h4>Want more practice material?</h4><p>Unlock extra AI-generated questions & flashcards for ₦500</p></span>
+          <span class="nudge-arrow">→</span>
+        </div>`);
+    }
+
     wrap.innerHTML = cards.join('');
     const continueBtn = wrap.querySelector('[data-nudge="continue"]');
     if (continueBtn) continueBtn.addEventListener('click', () => {
@@ -628,6 +675,27 @@
     if (focusBtn) focusBtn.addEventListener('click', () => {
       ensureUser(() => startQuizSetup(focusBtn.dataset.subject));
     });
+    const aiPromoCard = wrap.querySelector('[data-nudge="ai-promo"]');
+    if (aiPromoCard) {
+      aiPromoCard.querySelector('.nudge-ai-promo-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        dismissGeneralAICard();
+        aiPromoCard.remove();
+      });
+      aiPromoCard.addEventListener('click', () => showAIPaywall());
+    }
+  }
+
+  const AI_PROMO_DISMISSED_KEY = 'hh-ai-promo-dismissed-v1';
+  const AI_PROMO_COOLDOWN_DAYS = 4;
+  function shouldShowGeneralAICard() {
+    const dismissedAt = loadSafe(AI_PROMO_DISMISSED_KEY, null);
+    if (!dismissedAt) return true;
+    const daysSince = (Date.now() - dismissedAt) / 86400000;
+    return daysSince >= AI_PROMO_COOLDOWN_DAYS;
+  }
+  function dismissGeneralAICard() {
+    saveSafe(AI_PROMO_DISMISSED_KEY, Date.now());
   }
 
   /* ────────────────────────────────
@@ -820,6 +888,8 @@
     return cat === 'junior' ? JUNIOR_RESOURCES : SENIOR_RESOURCES;
   }
 
+  const MIXED_POOL_MODES = ['scramble', 'formula']; // these two have a genuine standalone mixed-subject mode, not a disguised fallback
+
   function openSubjectPicker(mode) {
     S.mode = mode;
     const manifest = CONTENT_MANIFEST[S.category];
@@ -834,31 +904,47 @@
     };
     document.getElementById('subjectScreenTitle').textContent = titles[mode] || 'Pick a subject';
 
+    // Explicit "Mixed Subjects" entry — its own honest, always-available
+    // option, not something a specific named subject silently turns into.
+    const mixedRowHtml = MIXED_POOL_MODES.includes(mode) ? `
+      <button class="subject-row subject-row-mixed" data-subject="__mixed__">
+        <div class="subject-row-icon" style="background:var(--coral-pale); color:var(--coral);">🔀</div>
+        <div class="subject-row-text">
+          <div class="subject-row-name">Mixed Subjects</div>
+          <div class="subject-row-count">All subjects together</div>
+        </div>
+        <span class="subject-row-arrow">→</span>
+      </button>` : '';
+
     const list = document.getElementById('subjectList');
-    list.innerHTML = manifest.subjects.map(key => {
+    list.innerHTML = mixedRowHtml + manifest.subjects.map(key => {
       const label = SUBJECT_LABELS[key] || key;
       const meta = subjectMeta(key);
-      let countText;
+      let countText, disabled = false;
       if (mode === 'library') {
         const r = resBank[key] || { flashcards: [], formulas: [], notes: [] };
         const total = (r.flashcards || []).length + (r.formulas || []).length + (r.notes || []).length;
         countText = total ? `${total} resources` : 'Coming soon';
+        disabled = !total;
       } else if (mode === 'memory') {
         const r = resBank[key] || { flashcards: [] };
         const pairCount = (r.flashcards || []).length;
         countText = pairCount >= 4 ? `${pairCount} card pairs` : 'Coming soon';
+        disabled = pairCount < 4;
       } else if (mode === 'scramble') {
         const words = scrambleWordsFor(S.category, key);
-        countText = words.length >= 6 ? `${words.length} words` : 'Mixed subjects';
+        countText = words.length >= 6 ? `${words.length} words` : 'Not enough yet';
+        disabled = words.length < 6;
       } else if (mode === 'formula') {
         const formulas = formulasFor(S.category, key);
-        countText = formulas.length >= 6 ? `${formulas.length} formulas` : 'Mixed subjects';
+        countText = formulas.length >= 6 ? `${formulas.length} formulas` : 'Not enough yet';
+        disabled = formulas.length < 6;
       } else {
         const subj = bank[key];
         const count = subj && subj.objective ? subj.objective.length : 0;
         countText = `${count} questions`;
       }
-      return `<button class="subject-row" data-subject="${key}">
+      return `<button class="subject-row ${disabled ? 'subject-row-disabled' : ''}" data-subject="${key}" ${disabled ? 'disabled' : ''}>
         <div class="subject-row-icon" style="background:${meta.color}1a; color:${meta.color};">${meta.icon}</div>
         <div class="subject-row-text">
           <div class="subject-row-name">${label}</div>
@@ -868,9 +954,9 @@
       </button>`;
     }).join('');
 
-    list.querySelectorAll('.subject-row').forEach(row => {
+    list.querySelectorAll('.subject-row:not(.subject-row-disabled)').forEach(row => {
       row.addEventListener('click', () => {
-        S.subject = row.dataset.subject;
+        S.subject = row.dataset.subject === '__mixed__' ? null : row.dataset.subject;
         if (mode === 'quiz') startQuizSetup(S.subject);
         else if (mode === 'game') showGameExplainer('game', S.subject);
         else if (mode === 'tf') showGameExplainer('tf', S.subject);
@@ -1296,8 +1382,8 @@
       renderExpandBanner(
         body,
         `That's all ${LIB.cards.length} ${SUBJECT_LABELS[LIB.subject] || LIB.subject} flashcards for now.`,
-        'Ask AI Tutor for more →',
-        () => openProjectHelper()
+        hasAICredit() ? 'Generate more with AI →' : 'Unlock more with AI →',
+        () => { hasAICredit() ? generateExtraFlashcardsForSubject(S.category, LIB.subject) : showAIPaywall(); }
       );
     }
   }
@@ -1581,17 +1667,17 @@
   }
 
   function startFormulaRush(subjectKey) {
-    let formulas = formulasFor(S.category, subjectKey);
-    let mixedFallback = false;
-    if (formulas.length < 6) {
-      formulas = formulasMixed(S.category);
-      mixedFallback = true;
-    }
+    const isMixed = subjectKey === null;
+    let formulas = isMixed ? formulasMixed(S.category) : formulasFor(S.category, subjectKey);
+    // Defensive only — the subject picker already disables any subject
+    // below this threshold, so a named subject landing here thin would
+    // mean a data change since the picker was rendered, not normal flow.
+    if (!isMixed && formulas.length < 6) formulas = formulasMixed(S.category);
     if (formulas.length < 4) {
       showToast('Not enough formula sheet content yet for Formula Rush.');
       return;
     }
-    const pool = formulasMixed(S.category); // always draw distractors from the widest pool available, even in non-mixed mode
+    const pool = formulasMixed(S.category); // always draw distractors from the widest pool available
     const queue = buildFormulaQueue(formulas.slice(0, 20), pool);
 
     G = { kind: 'formula', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
@@ -1603,9 +1689,8 @@
     document.getElementById('gameStreak').textContent = '0';
     updateGameTimerDisplay();
     const catLabel = CONTENT_MANIFEST[S.category].label;
-    if (mixedFallback) {
-      document.getElementById('gameSubjectBadge').textContent = `🔢 Mixed Subjects · ${catLabel}`;
-      showToast('Not many formulas in this subject yet — mixing in others.');
+    if (isMixed) {
+      document.getElementById('gameSubjectBadge').textContent = `🔀 Mixed Subjects · ${catLabel}`;
     } else {
       const meta = subjectMeta(subjectKey);
       document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
@@ -1821,12 +1906,11 @@
   let _scrambleLetters = [];
 
   function startWordScramble(subjectKey) {
-    let words = scrambleWordsFor(S.category, subjectKey);
-    let mixedFallback = false;
-    if (words.length < 6) {
-      words = scrambleWordsMixed(S.category);
-      mixedFallback = true;
-    }
+    const isMixed = subjectKey === null;
+    let words = isMixed ? scrambleWordsMixed(S.category) : scrambleWordsFor(S.category, subjectKey);
+    // Defensive only — the picker already disables any subject below this
+    // threshold, same reasoning as Formula Rush above.
+    if (!isMixed && words.length < 6) words = scrambleWordsMixed(S.category);
     if (words.length < 4) {
       showToast('Not enough Study Library words yet for Word Scramble.');
       return;
@@ -1843,9 +1927,8 @@
     document.getElementById('gameStreak').textContent = '0';
     updateGameTimerDisplay();
     const catLabel = CONTENT_MANIFEST[S.category].label;
-    if (mixedFallback) {
-      document.getElementById('gameSubjectBadge').textContent = `🔤 Mixed Subjects · ${catLabel}`;
-      showToast('Not many words in this subject yet — mixing in others.');
+    if (isMixed) {
+      document.getElementById('gameSubjectBadge').textContent = `🔀 Mixed Subjects · ${catLabel}`;
     } else {
       const meta = subjectMeta(subjectKey);
       document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
