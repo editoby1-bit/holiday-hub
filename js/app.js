@@ -615,6 +615,8 @@
      brand-new user just sees the plain feature grid.
   ──────────────────────────────── */
   function renderDashboardNudge() {
+    updateAICreditBadges();
+    maybeShowBoostExpiryReminder();
     const wrap = document.getElementById('dashboardNudge');
     if (!wrap) return;
     const cards = [];
@@ -1105,6 +1107,20 @@
       const mins = parseInt(document.getElementById('quizSetupTime').value, 10);
       launchQuiz(subjectKey, count, mins);
     });
+
+    // A much higher bar than Revision's 70% "worked through most of it"
+    // nudge — this is specifically for "you've basically already done all
+    // of these," a stronger, more specific claim, so it needs a higher
+    // threshold to stay honest.
+    const coverage = seenCoverage(S.category, subjectKey);
+    if (coverage >= 0.9) {
+      renderExpandBanner(
+        body,
+        `You've already tried ${Math.round(coverage * 100)}% of ${SUBJECT_LABELS[subjectKey] || subjectKey}'s question set.`,
+        hasAICredit() ? 'Get a fresh set with AI →' : 'Unlock a 2-Day AI Boost →',
+        () => { hasAICredit() ? generateExtraContentForSubject(S.category, subjectKey) : showAIPaywall(); }
+      );
+    }
   }
 
   function launchQuiz(subjectKey, count, mins) {
@@ -1377,6 +1393,15 @@
       showToast('Shuffled!', 1200);
       renderFlashcards(body, cards);
     });
+
+    if (LIB.idx === LIB.cards.length - 2 && LIB.cards.length >= 2) {
+      renderExpandBanner(
+        body,
+        `Only 1 more ${SUBJECT_LABELS[LIB.subject] || LIB.subject} flashcard after this one.`,
+        hasAICredit() ? 'Add more with AI →' : 'Unlock more with AI →',
+        () => { hasAICredit() ? generateExtraFlashcardsForSubject(S.category, LIB.subject) : showAIPaywall(); }
+      );
+    }
 
     if (LIB.idx === LIB.cards.length - 1) {
       renderExpandBanner(
@@ -3137,12 +3162,46 @@
      the same live Paystack key and /api/verify-payment endpoint as
      My Exams App / My JAMB App (same merchant account).
   ──────────────────────────────── */
+  const AI_BOOST_WINDOW_MS = 48 * 60 * 60 * 1000; // 2 days
+
+  const BOOST_REMINDER_KEY = 'hh-boost-reminder-v1';
+  /** Nobody should pay ₦500 and have it quietly expire unused. Once per
+   * day, if there's an active boost with credits still left and under 6
+   * hours remaining, say so — same spirit as the rest of this project's
+   * "tell people what's actually happening" fixes. */
+  function maybeShowBoostExpiryReminder() {
+    const data = getAICredits();
+    if (!data.boostExpiresAt || data.credits <= 0) return;
+    const hoursLeft = (data.boostExpiresAt - Date.now()) / 3600000;
+    if (hoursLeft <= 0 || hoursLeft > 6) return;
+    const today = new Date().toDateString();
+    const lastShown = loadSafe(BOOST_REMINDER_KEY, null);
+    if (lastShown === today) return;
+    saveSafe(BOOST_REMINDER_KEY, today);
+    showActionToast(
+      `${data.credits} AI credits expire in ${Math.ceil(hoursLeft)}h — don't lose them!`,
+      'Use now →',
+      () => openProjectHelper(),
+      6000
+    );
+  }
+
   function getAICredits() {
     const data = loadSafe(AI_CREDITS_KEY, null);
     if (data === null) {
-      const fresh = { credits: FREE_TRIAL_CREDITS, totalPurchased: 0 };
+      const fresh = { credits: FREE_TRIAL_CREDITS, totalPurchased: 0, boostExpiresAt: null };
       saveSafe(AI_CREDITS_KEY, fresh);
       return fresh;
+    }
+    // Lazy-expire: purchased credits are a time-boxed "2-Day AI Boost", not
+    // a permanent balance — free trial credits (boostExpiresAt stays null
+    // until a real purchase happens) never expire this way. Checked here
+    // rather than with a timer, same pattern as everything else in this
+    // localStorage-only app — no server, so expiry is checked on access.
+    if (data.boostExpiresAt && Date.now() > data.boostExpiresAt && data.credits > 0) {
+      data.credits = 0;
+      data.boostExpiresAt = null;
+      saveSafe(AI_CREDITS_KEY, data);
     }
     return data;
   }
@@ -3165,14 +3224,26 @@
     const data = getAICredits();
     data.credits += n;
     data.totalPurchased += n;
+    data.boostExpiresAt = Date.now() + AI_BOOST_WINDOW_MS; // (re)starts the 2-day window from this purchase
     saveSafe(AI_CREDITS_KEY, data);
     updateAICreditBadges();
   }
 
   function updateAICreditBadges() {
-    const n = getAICredits().credits;
+    const data = getAICredits();
+    const n = data.credits;
     document.querySelectorAll('.ai-credit-badge').forEach(el => {
       el.textContent = `✨ ${n} left`;
+    });
+    document.querySelectorAll('.ai-boost-expiry').forEach(el => {
+      if (data.boostExpiresAt && data.credits > 0) {
+        const hoursLeft = Math.max(0, Math.ceil((data.boostExpiresAt - Date.now()) / 3600000));
+        el.textContent = hoursLeft > 0 ? `Boost expires in ${hoursLeft}h` : '';
+        el.classList.toggle('hidden', hoursLeft <= 0);
+      } else {
+        el.textContent = '';
+        el.classList.add('hidden');
+      }
     });
   }
 
@@ -3246,7 +3317,7 @@
       currency: 'NGN',
       ref: 'HH-AI-' + Date.now(),
       metadata: { custom_fields: [
-        { display_name: 'Product', variable_name: 'product', value: 'Holiday Hub — 10 AI responses' },
+        { display_name: 'Product', variable_name: 'product', value: 'Holiday Hub — 2-Day AI Boost (10 credits)' },
       ]},
       onClose() {},
       callback(response) {
@@ -3264,7 +3335,7 @@
             }
             addAICredits(AI_CREDIT_PACK_SIZE);
             hideAIPaywall();
-            showToast(`✅ ${AI_CREDIT_PACK_SIZE} AI responses unlocked!`, 3000);
+            showToast(`✅ 2-Day AI Boost unlocked — ${AI_CREDIT_PACK_SIZE} credits, use them in the next 48 hours!`, 4000);
           } catch (err) {
             showToast('Could not confirm payment — contact support with reference: ' + response.reference, 5000);
           }
