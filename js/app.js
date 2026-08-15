@@ -1076,7 +1076,7 @@
         </div>
         <div class="q-nav-row">
           <button class="btn btn-ghost" id="revPrev" ${S.idx === 0 ? 'disabled' : ''}>← Previous</button>
-          <button class="btn btn-primary" id="revNext" ${S.idx === S.questions.length - 1 ? 'disabled' : ''}>Next →</button>
+          <button class="btn btn-primary" id="revNext">Next →</button>
         </div>
       </div>`;
 
@@ -1105,7 +1105,22 @@
     });
 
     document.getElementById('revPrev').addEventListener('click', () => { S.idx--; renderRevisionQuestion(); });
-    document.getElementById('revNext').addEventListener('click', () => { S.idx++; renderRevisionQuestion(); });
+    document.getElementById('revNext').addEventListener('click', () => {
+      if (S.idx === S.questions.length - 1) {
+        // Same escalation pattern as Flashcards (see renderFlashcards): the
+        // dismissible banner already offered this once below; pushing past
+        // the last question anyway is a stronger signal and earns the
+        // blocking ask instead of silently doing nothing (this button used
+        // to just be disabled here).
+        showCompletedModal(
+          `You've reached the end of ${SUBJECT_LABELS[S.subject] || S.subject}'s revision questions.`,
+          () => generateExtraContentForSubject(S.category, S.subject),
+          { title: 'That\'s all for now!', icon: '🎉', continueLabel: 'Stay here' }
+        );
+        return;
+      }
+      S.idx++; renderRevisionQuestion();
+    });
 
     if (S.idx === S.questions.length - 1) {
       markCompleted(S.category, S.subject, 'revision');
