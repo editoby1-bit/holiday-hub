@@ -158,13 +158,21 @@
     return !!all[completedKey(category, subject, type)];
   }
 
-  /** A genuinely blocking modal, not a scroll-past inline banner — only
-   * used for this one deliberately strong signal (real repeat
-   * completion). Reused across Library/Quiz/Revision with a fresh
-   * callback each time via .onclick (always replaces any previous
-   * handler, no leaked/stacked listeners across repeated shows). */
-  function showCompletedModal(message, onGetMore) {
+  /** A genuinely blocking modal, not a scroll-past inline banner — used
+   * for deliberately strong signals only (real repeat completion, or
+   * pushing past the end of content on a first pass). Reused across
+   * Library/Quiz/Revision with fresh values each time via .onclick/
+   * textContent (always overwrites, no leaked/stacked listeners across
+   * repeated shows). Title/icon/continue-label are optional — default to
+   * the "you've done this before" framing, since that's the original and
+   * most common case; pass overrides for a different honest framing
+   * (e.g. "that's everything for now" on first-pass exhaustion). */
+  function showCompletedModal(message, onGetMore, opts) {
+    const o = opts || {};
+    document.getElementById('completedTitle').textContent = o.title || "You've already been through this";
+    document.getElementById('completedIcon').textContent = o.icon || '🔁';
     document.getElementById('completedSub').textContent = message;
+    document.getElementById('completedContinueBtn').textContent = o.continueLabel || 'Continue anyway';
     const modal = document.getElementById('completedModal');
     modal.classList.remove('hidden');
     document.getElementById('completedGetMoreBtn').onclick = () => {
@@ -1438,7 +1446,7 @@
       </div>
       <div class="flashcard-nav-row">
         <button class="btn btn-ghost" id="flPrev" ${LIB.idx === 0 ? 'disabled' : ''}>← Previous</button>
-        <button class="btn btn-primary" id="flNext" ${LIB.idx === LIB.cards.length - 1 ? 'disabled' : ''}>Next →</button>
+        <button class="btn btn-primary" id="flNext">Next →</button>
       </div>
       <button class="flashcard-shuffle-btn" id="flShuffle">🔀 Shuffle cards</button>
     `;
@@ -1448,7 +1456,21 @@
       document.getElementById('flashcardEl').classList.toggle('flipped', LIB.flipped);
     });
     document.getElementById('flPrev').addEventListener('click', () => { LIB.idx--; LIB.flipped = false; renderFlashcards(body, cards); });
-    document.getElementById('flNext').addEventListener('click', () => { LIB.idx++; LIB.flipped = false; renderFlashcards(body, cards); });
+    document.getElementById('flNext').addEventListener('click', () => {
+      if (LIB.idx === LIB.cards.length - 1) {
+        // Pushed past the end on purpose — the dismissible banner already
+        // offered this once (below); trying to continue anyway is a much
+        // stronger signal, so it earns the harder, blocking ask instead of
+        // being silently ignored (this button used to just be disabled here).
+        showCompletedModal(
+          `You've reached the end of these ${SUBJECT_LABELS[LIB.subject] || LIB.subject} flashcards.`,
+          () => generateExtraFlashcardsForSubject(S.category, LIB.subject),
+          { title: 'That\'s all for now!', icon: '🎉', continueLabel: 'Stay here' }
+        );
+        return;
+      }
+      LIB.idx++; LIB.flipped = false; renderFlashcards(body, cards);
+    });
     document.getElementById('flShuffle').addEventListener('click', () => {
       shuffleArray(LIB.cards); LIB.idx = 0; LIB.flipped = false;
       showToast('Shuffled!', 1200);
