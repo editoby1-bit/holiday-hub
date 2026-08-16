@@ -318,6 +318,16 @@ a { color:inherit; text-decoration:none; }
   max-width: 420px;
   animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
 }
+
+/* AI Credits Paywall — same reasoning as Game Explainer: this is a decision
+   point ("pay or not"), not content to scroll through, so it reads better
+   centered than anchored to the bottom with dead space above it. */
+#aiPaywallModal { align-items:center; padding: 0 1.25rem; }
+#aiPaywallModal .sheet {
+  border-radius: var(--r-l);
+  max-width: 420px;
+  animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
+}
 @keyframes dialog-pop {
   from { transform: scale(.94) translateY(6px); opacity:0; }
   to   { transform: scale(1) translateY(0); opacity:1; }
