@@ -296,6 +296,7 @@ a { color:inherit; text-decoration:none; }
 }
 .overlay.hidden { display:none; }
 .sheet {
+  position: relative;
   background: var(--cream); width:100%; max-width:640px;
   border-radius: var(--r-l) var(--r-l) 0 0;
   padding: 1.5rem 1.25rem 2rem;
