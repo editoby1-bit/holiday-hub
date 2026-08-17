@@ -37,7 +37,10 @@ const SENIOR_RESOURCES = {
       { title: "Distance Formula", formula: "d = √[(x₂-x₁)² + (y₂-y₁)²]", note: "Distance between two points on a graph." },
       { title: "Gradient of a Line", formula: "m = (y₂-y₁) / (x₂-x₁)", note: "Slope between two points." },
     ],
-    notes: [],
+    notes: [
+      { topic: "Solving Quadratic Equations", summary: "There are three main methods: factorisation (if the equation factors neatly), completing the square, or the quadratic formula (which always works). If a question doesn't factorise easily, go straight to the formula rather than wasting time guessing factors." },
+      { topic: "Reading Statistics: Mean vs Median vs Mode", summary: "The mean is pulled by extreme values (outliers), so it can be misleading for skewed data. The median is more robust to outliers since it just picks the middle value. The mode is most useful for categorical data or finding the most common value in a set." },
+    ],
   },
 
   english: {
@@ -129,7 +132,10 @@ const SENIOR_RESOURCES = {
       { title: "Kinetic Energy", formula: "KE = ½mv²", note: "m = mass, v = velocity." },
       { title: "Power", formula: "P = W ÷ t", note: "Work done divided by time taken." },
     ],
-    notes: [],
+    notes: [
+      { topic: "Distance vs Displacement, Speed vs Velocity", summary: "Distance and speed are scalar (they only have size); displacement and velocity are vector (they have size AND direction). Two objects can travel the same distance but have different displacement if they end up at different final positions relative to their starting point." },
+      { topic: "Newton's Three Laws of Motion", summary: "First Law: an object stays at rest or in uniform motion unless acted on by a force. Second Law: force equals mass times acceleration (F = ma). Third Law: for every action there is an equal and opposite reaction. Together they explain almost all everyday motion." },
+    ],
   },
 
   economics: {
@@ -164,11 +170,17 @@ const SENIOR_RESOURCES = {
       { term: "Bicameral Legislature", definition: "A law-making body made up of two chambers — e.g. Senate and House of Representatives." },
       { term: "Rule of Law", definition: "The principle that everyone, including those in power, is subject to and accountable under the law." },
       { term: "Pressure Group", definition: "An organised group that seeks to influence government policy without seeking to win political power directly." },
+      { term: "Electoral College", definition: "A body of representatives formally chosen to elect a head of state or other officials on behalf of voters." },
+      { term: "Fundamental Human Rights", definition: "Basic rights guaranteed to every citizen by the constitution, e.g. right to life, freedom of speech, freedom from discrimination." },
+      { term: "Public Opinion", definition: "The collective views and attitudes held by the general population on a particular issue." },
+      { term: "Delegated Legislation", definition: "Laws made by a body other than the main legislature (e.g. a minister or local authority) under powers granted by an Act of Parliament." },
+      { term: "Impeachment", definition: "The formal process by which a sitting official (e.g. a president or governor) can be charged with misconduct and removed from office." },
     ],
     formulas: [],
     notes: [
       { topic: "Arms of Government", summary: "The Executive implements laws (President/Governor and cabinet), the Legislature makes laws (National/State Assembly), and the Judiciary interprets laws and settles disputes (courts). This separation is meant to check and balance power." },
       { topic: "Federal vs Unitary Government", summary: "In a federal system (like Nigeria), power is constitutionally divided between central and state governments, each with defined areas of authority. In a unitary system, power is concentrated at the centre, with local units only having delegated authority." },
+      { topic: "Functions of Pressure Groups", summary: "Pressure groups influence policy by lobbying government officials, organising public campaigns, and providing expert information on issues that affect their members. Unlike political parties, they don't contest elections — their goal is influence, not holding office directly." },
     ],
   },
 
@@ -298,11 +310,17 @@ const SENIOR_RESOURCES = {
       { term: "Insurance", definition: "A contract where one party pays a premium to be compensated for specified future losses." },
       { term: "Warehousing", definition: "The storage of goods before they are needed for sale or distribution." },
       { term: "E-commerce", definition: "The buying and selling of goods and services over the internet." },
+      { term: "Hire Purchase", definition: "A method of buying goods where the buyer pays in instalments and only owns the goods after the final payment." },
+      { term: "Chamber of Commerce", definition: "An association of business owners formed to promote and protect their trading interests." },
+      { term: "Middleman", definition: "Any trader (like a wholesaler or retailer) who links producers to final consumers in the distribution chain." },
+      { term: "Bill of Lading", definition: "A document issued by a shipping company acknowledging receipt of goods for transport, and serving as a contract of carriage." },
+      { term: "Consumer Protection", definition: "Laws and measures designed to safeguard buyers from unfair trade practices, unsafe products, or exploitation." },
     ],
     formulas: [],
     notes: [
       { topic: "Channels of Distribution", summary: "Goods typically move from producer to wholesaler to retailer to consumer, though some producers sell directly to retailers or consumers to cut costs. The right channel depends on the product, market size, and cost considerations." },
       { topic: "Aids to Trade", summary: "Trade depends on supporting services: transport (moving goods), insurance (covering risk), banking (financing transactions), warehousing (storage), and advertising (creating demand). These are often called 'aids to trade' in exams." },
+      { topic: "Documents Used in Trade", summary: "Common trade documents include the invoice (bill for goods sold), receipt (proof of payment), and bill of lading (proof of shipment for goods transported by sea). Each protects both buyer and seller by creating a clear record of the transaction." },
     ],
   },
 
@@ -314,10 +332,16 @@ const SENIOR_RESOURCES = {
       { term: "Target Market", definition: "The specific group of consumers a business aims its products and marketing efforts at." },
       { term: "Market Research", definition: "The systematic gathering of information about customers and markets to guide business decisions." },
       { term: "Product Life Cycle", definition: "The stages a product goes through: introduction, growth, maturity, and decline." },
+      { term: "Advertising", definition: "Paid, non-personal promotion of goods, services, or ideas through media, aimed at a mass audience." },
+      { term: "Personal Selling", definition: "Direct, face-to-face communication between a salesperson and a potential buyer to make a sale." },
+      { term: "Sales Promotion", definition: "Short-term incentives (e.g. discounts, free samples) used to encourage the immediate purchase of a product." },
+      { term: "Consumer Behaviour", definition: "The study of how individuals decide to select, buy, and use goods and services." },
+      { term: "Positioning", definition: "The way a product is perceived in customers' minds relative to competing products." },
     ],
     formulas: [],
     notes: [
       { topic: "The 4 Ps of Marketing", summary: "Product (what you're selling), Price (what it costs), Place (where/how it's sold), and Promotion (how customers hear about it) work together — a change in one usually requires adjusting the others to keep them consistent with the brand's positioning." },
+      { topic: "Stages of the Product Life Cycle", summary: "Introduction (product launches, low sales, high promotion cost), Growth (sales rise quickly, competitors enter), Maturity (sales peak and stabilise, competition is strongest), and Decline (sales fall as the market saturates or tastes change). Marketing strategy usually shifts at each stage." },
     ],
   },
 
@@ -329,10 +353,16 @@ const SENIOR_RESOURCES = {
       { term: "Colostrum", definition: "The first milk produced after birth, rich in antibodies important for a newborn animal's immunity." },
       { term: "Culling", definition: "The removal of unproductive or unhealthy animals from a herd or flock." },
       { term: "Vaccination", definition: "The administration of a vaccine to protect an animal against a specific disease." },
+      { term: "Weaning", definition: "The process of gradually stopping a young animal's dependence on its mother's milk in favour of solid feed." },
+      { term: "Castration", definition: "The removal or deactivation of an animal's testes, often done to control breeding or improve meat quality/temperament." },
+      { term: "Balanced Ration", definition: "A feed mixture that supplies all the nutrients an animal needs in the correct proportions for its stage of growth or production." },
+      { term: "Brooding", definition: "The care given to young chicks to keep them warm and protected, usually during their first few weeks of life." },
+      { term: "Zoonosis", definition: "A disease that can be transmitted from animals to humans, e.g. avian influenza, rabies." },
     ],
     formulas: [],
     notes: [
       { topic: "Housing Systems in Livestock", summary: "Housing protects animals from weather, predators, and disease while making feeding and management easier. Systems vary by animal type — e.g. deep litter and battery cage systems for poultry, paddocks or zero-grazing for cattle — each with different cost and disease-control tradeoffs." },
+      { topic: "Signs of a Healthy Animal", summary: "A healthy animal typically has bright, alert eyes, a shiny coat or clean feathers, normal appetite, and normal droppings. Farmers check these signs regularly since early detection of illness makes treatment far more effective and prevents disease spreading through the herd or flock." },
     ],
   },
 };
