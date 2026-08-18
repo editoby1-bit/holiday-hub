@@ -249,7 +249,12 @@
    * button promised ("more materials") and what it actually did (opened a
    * conversation you'd have to steer yourself). */
   function maybeShowThinLibraryNudge(category, subject, totalItems) {
-    if (totalItems >= 10) return;
+    // Threshold raised from 10 to 20 now that Math/English carry 40-70+
+    // items each after the core-subjects deep pass — everything else
+    // still sits at 10-19, so this correctly keeps firing for every
+    // subject except the two flagship ones, which is the honest signal:
+    // "there's more coming here, AI can bridge the gap today."
+    if (totalItems >= 20) return;
     const key = seenKey(category, subject);
     const shown = loadSafe(LIBRARY_NUDGE_KEY, {});
     const today = new Date().toDateString();
@@ -257,8 +262,8 @@
     shown[key] = today;
     saveSafe(LIBRARY_NUDGE_KEY, shown);
     showActionToast(
-      `Offline material for ${SUBJECT_LABELS[subject] || subject} is limited right now.`,
-      'Get more with AI →',
+      `We're still adding offline material for ${SUBJECT_LABELS[subject] || subject}.`,
+      'Activate AI mode for more →',
       () => { hasAICredit() ? generateExtraFlashcardsForSubject(category, subject) : showAIPaywall(); },
       5500
     );
@@ -310,11 +315,8 @@
    */
   function pickQuestions(category, subject, pool, count) {
     const seen = getSeenSet(category, subject);
-    const unseen = pool.filter(q => !seen.has(q.id));
-    const alreadySeen = pool.filter(q => seen.has(q.id));
-
-    shuffleArray(unseen);
-    shuffleArray(alreadySeen);
+    const unseen = shuffleArray(pool.filter(q => !seen.has(q.id)));
+    const alreadySeen = shuffleArray(pool.filter(q => seen.has(q.id)));
 
     let selected = unseen.slice(0, count);
     let recycled = false;
@@ -1208,13 +1210,6 @@
     showScreen('quizScreen');
   }
 
-  function shuffleArray(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-  }
-
   function startTimer(secs) {
     S.timerSecs = secs;
     updateTimerDisplay();
@@ -1438,7 +1433,7 @@
   }
 
   function renderFlashcards(body, cards) {
-    if (!LIB.cards.length) LIB.cards = cards.slice();
+    if (!LIB.cards.length) LIB.cards = shuffleArray(cards);
     if (!LIB.cards.length) { body.innerHTML = '<div class="lib-empty">No flashcards for this subject yet.</div>'; return; }
     const card = LIB.cards[LIB.idx];
 
@@ -1487,7 +1482,7 @@
       LIB.idx++; LIB.flipped = false; renderFlashcards(body, cards);
     });
     document.getElementById('flShuffle').addEventListener('click', () => {
-      shuffleArray(LIB.cards); LIB.idx = 0; LIB.flipped = false;
+      LIB.cards = shuffleArray(LIB.cards); LIB.idx = 0; LIB.flipped = false;
       showToast('Shuffled!', 1200);
       renderFlashcards(body, cards);
     });
@@ -1659,8 +1654,7 @@
         });
       }
     });
-    shuffleArray(items);
-    return items;
+    return shuffleArray(items);
   }
 
   function startTrueFalseBlitz(subjectKey) {
@@ -2209,18 +2203,15 @@
   function buildCategorySortRound() {
     const resBank = getResourceBank(S.category);
     const manifest = CONTENT_MANIFEST[S.category];
-    const eligible = manifest.subjects.filter(s => ((resBank[s] || {}).flashcards || []).length >= 3);
-    shuffleArray(eligible);
+    const eligible = shuffleArray(manifest.subjects.filter(s => ((resBank[s] || {}).flashcards || []).length >= 3));
     const bucketSubjects = eligible.slice(0, Math.min(4, eligible.length));
 
     const items = [];
     bucketSubjects.forEach(subj => {
-      const cards = (resBank[subj].flashcards || []).slice();
-      shuffleArray(cards);
+      const cards = shuffleArray((resBank[subj].flashcards || []).slice());
       cards.slice(0, 8).forEach(c => items.push({ id: subj + '::' + c.term, term: c.term, subject: subj }));
     });
-    shuffleArray(items);
-    return { bucketSubjects, items };
+    return { bucketSubjects, items: shuffleArray(items) };
   }
 
   function startCategorySort() {
@@ -2562,17 +2553,17 @@
       return;
     }
 
-    shuffleArray(cards);
-    const pairCount = Math.min(6, cards.length);
-    const chosen = cards.slice(0, pairCount);
+    const shuffledCards = shuffleArray(cards);
+    const pairCount = Math.min(6, shuffledCards.length);
+    const chosen = shuffledCards.slice(0, pairCount);
     const tiles = [];
     chosen.forEach((c, i) => {
       tiles.push({ pairId: i, text: c.term, matched: false });
       tiles.push({ pairId: i, text: c.definition, matched: false });
     });
-    shuffleArray(tiles);
+    const shuffledTiles = shuffleArray(tiles);
 
-    MEM = { subject: subjectKey, tiles, flippedIdx: [], matchedCount: 0, totalPairs: pairCount, moves: 0, startTime: Date.now(), locked: false };
+    MEM = { subject: subjectKey, tiles: shuffledTiles, flippedIdx: [], matchedCount: 0, totalPairs: pairCount, moves: 0, startTime: Date.now(), locked: false };
     setLastActivity(S.category, subjectKey, 'memory');
 
     document.getElementById('memMoves').textContent = '0';
@@ -2909,8 +2900,7 @@
         if (aiRes.ok && aiData.ok && aiData.questions.length) {
           consumeAICredit();
           // Replace recycled/seen static questions first with AI ones, keep unseen static.
-          const combined = staticQuestions.concat(aiData.questions);
-          shuffleArray(combined);
+          const combined = shuffleArray(staticQuestions.concat(aiData.questions));
           questions = combined.slice(0, count);
           const left = getAICredits().credits;
           showToast(`✨ AI Boost added ${aiData.questions.length} fresh questions — 1 credit used (${left} left)`, 3200);
