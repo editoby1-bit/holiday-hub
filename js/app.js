@@ -302,6 +302,43 @@
     }
   }
 
+  /** Mirrors generateExtraFlashcardsForSubject exactly, but for the Notes
+   * tab — this used to not exist at all (Notes had no AI generation path;
+   * "already completed" fell back to opening Project Helper's chat
+   * instead of actually generating notes). Same ephemeral-for-this-session
+   * pattern: merges into the live in-memory resource bank, not written
+   * back to the static data files. */
+  async function generateExtraNotesForSubject(category, subject) {
+    showToast('Generating fresh notes with AI…', 4000);
+    try {
+      const resBank = getResourceBank(category);
+      const r = resBank[subject] || (resBank[subject] = { flashcards: [], formulas: [], notes: [] });
+      const avoid = (r.notes || []).map(n => n.topic).slice(0, 60);
+      const res = await fetch(API_BASE + '/api/generate-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category, subject: SUBJECT_LABELS[subject] || subject,
+          count: 6, avoidQuestions: avoid, contentType: 'notes',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.notes || !data.notes.length) {
+        showToast('Could not generate more notes right now — please try again shortly.');
+        return;
+      }
+      consumeAICredit();
+      r.notes = (r.notes || []).concat(data.notes);
+      // If mid-Library on this exact subject's notes tab, refresh in place.
+      if (LIB.subject === subject && LIB.tab === 'notes') {
+        renderNotes(document.getElementById('libraryBody'), r.notes);
+      }
+      const left = getAICredits().credits;
+      showToast(`✨ ${data.notes.length} new notes added — 1 credit used (${left} left)`, 3800);
+    } catch (err) {
+      showToast('Could not generate more notes right now — please try again shortly.');
+    }
+  }
+
 
   /**
    * Picks `count` questions from `pool` (array of question objects with
@@ -1413,7 +1450,9 @@
         `You've already been through these ${SUBJECT_LABELS[subjectKey] || subjectKey} ${tabNoun} before.`,
         () => LIB.tab === 'flashcards'
           ? generateExtraFlashcardsForSubject(S.category, subjectKey)
-          : openProjectHelper() // formulas/notes generation isn't built yet — see HANDOFF §22
+          : LIB.tab === 'notes'
+          ? generateExtraNotesForSubject(S.category, subjectKey)
+          : openProjectHelper() // formulas generation still isn't built — notes now is
       );
     }
   }
@@ -1533,6 +1572,16 @@
         <div class="note-summary">${n.summary}</div>
       </div>`).join('');
     markCompleted(S.category, LIB.subject, 'library-notes');
+
+    // Notes previously had no AI entry point at all — this is the
+    // equivalent of flashcards' end-of-list banner, now that
+    // generateExtraNotesForSubject actually exists.
+    renderExpandBanner(
+      body,
+      `That's ${notes.length} ${SUBJECT_LABELS[LIB.subject] || LIB.subject} notes for now.`,
+      hasAICredit() ? 'Add more notes with AI →' : 'Unlock more with AI →',
+      () => { hasAICredit() ? generateExtraNotesForSubject(S.category, LIB.subject) : showAIPaywall(); }
+    );
   }
 
   /* ────────────────────────────────
