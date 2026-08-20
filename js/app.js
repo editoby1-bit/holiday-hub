@@ -1509,7 +1509,10 @@
 
   function renderFormulas(body, formulas) {
     if (!formulas.length) { body.innerHTML = '<div class="lib-empty">No formula sheet for this subject yet.</div>'; return; }
-    body.innerHTML = formulas.map(f => `
+    // Shuffled per render so a student who habitually reads top-to-bottom
+    // and stops partway sees different formulas first each visit, even
+    // though the full list still renders every time either way.
+    body.innerHTML = shuffleArray(formulas).map(f => `
       <div class="formula-card">
         <div class="formula-title">${f.title}</div>
         <div class="formula-expr">${f.formula}</div>
@@ -1523,7 +1526,8 @@
 
   function renderNotes(body, notes) {
     if (!notes.length) { body.innerHTML = '<div class="lib-empty">No concept notes for this subject yet.</div>'; return; }
-    body.innerHTML = notes.map(n => `
+    // Same reasoning as renderFormulas — shuffled per render for freshness.
+    body.innerHTML = shuffleArray(notes).map(n => `
       <div class="note-card">
         <div class="note-topic">${n.topic}</div>
         <div class="note-summary">${n.summary}</div>
