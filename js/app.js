@@ -293,7 +293,7 @@
       // If mid-Library on this exact subject's flashcard tab, refresh in place.
       if (LIB.subject === subject && LIB.tab === 'flashcards') {
         LIB.cards = LIB.cards.concat(data.flashcards);
-        renderFlashcards(document.getElementById('libraryBody'), LIB.cards);
+        renderFlashcards(document.getElementById('libraryTabBody'), LIB.cards);
       }
       const left = getAICredits().credits;
       showToast(`✨ ${data.flashcards.length} new flashcards added — 1 credit used (${left} left)`, 3800);
@@ -330,12 +330,51 @@
       r.notes = (r.notes || []).concat(data.notes);
       // If mid-Library on this exact subject's notes tab, refresh in place.
       if (LIB.subject === subject && LIB.tab === 'notes') {
-        renderNotes(document.getElementById('libraryBody'), r.notes);
+        renderNotes(document.getElementById('libraryTabBody'), r.notes);
       }
       const left = getAICredits().credits;
       showToast(`✨ ${data.notes.length} new notes added — 1 credit used (${left} left)`, 3800);
     } catch (err) {
       showToast('Could not generate more notes right now — please try again shortly.');
+    }
+  }
+
+  /** Same pattern again, for Formulas — the one gap left after Flashcards
+   * and Notes got real AI generation. A subject with no genuine formulas
+   * (English, CRS, etc.) can validly get back an empty array from the
+   * backend; that's not an error, so it gets its own honest message
+   * instead of the generic failure toast. */
+  async function generateExtraFormulasForSubject(category, subject) {
+    showToast('Generating fresh formulas with AI…', 4000);
+    try {
+      const resBank = getResourceBank(category);
+      const r = resBank[subject] || (resBank[subject] = { flashcards: [], formulas: [], notes: [] });
+      const avoid = (r.formulas || []).map(f => f.title).slice(0, 60);
+      const res = await fetch(API_BASE + '/api/generate-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category, subject: SUBJECT_LABELS[subject] || subject,
+          count: 6, avoidQuestions: avoid, contentType: 'formulas',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !Array.isArray(data.formulas)) {
+        showToast('Could not generate more formulas right now — please try again shortly.');
+        return;
+      }
+      if (!data.formulas.length) {
+        showToast(`${SUBJECT_LABELS[subject] || subject} doesn't really use formulas — try Flashcards or Notes instead.`, 4200);
+        return;
+      }
+      consumeAICredit();
+      r.formulas = (r.formulas || []).concat(data.formulas);
+      if (LIB.subject === subject && LIB.tab === 'formulas') {
+        renderFormulas(document.getElementById('libraryTabBody'), r.formulas);
+      }
+      const left = getAICredits().credits;
+      showToast(`✨ ${data.formulas.length} new formulas added — 1 credit used (${left} left)`, 3800);
+    } catch (err) {
+      showToast('Could not generate more formulas right now — please try again shortly.');
     }
   }
 
@@ -1076,7 +1115,7 @@
     if (wasCompletedBefore(S.category, subjectKey, 'revision')) {
       showCompletedModal(
         `You've already been through ${SUBJECT_LABELS[subjectKey] || subjectKey}'s revision questions before.`,
-        () => generateExtraContentForSubject(S.category, subjectKey)
+        () => { if (!hasAICredit()) { showAIPaywall(); return; } generateExtraContentForSubject(S.category, subjectKey); }
       );
     } else {
       maybeShowCoverageNudge(S.category, subjectKey, 'of the offline questions');
@@ -1153,7 +1192,7 @@
         // to just be disabled here).
         showCompletedModal(
           `You've reached the end of ${SUBJECT_LABELS[S.subject] || S.subject}'s revision questions.`,
-          () => generateExtraContentForSubject(S.category, S.subject),
+          () => { if (!hasAICredit()) { showAIPaywall(); return; } generateExtraContentForSubject(S.category, S.subject); },
           { title: 'That\'s all for now!', icon: '🎉', continueLabel: 'Stay here' }
         );
         return;
@@ -1220,7 +1259,7 @@
     if (wasCompletedBefore(S.category, subjectKey, 'quiz')) {
       showCompletedModal(
         `You've already been through ${SUBJECT_LABELS[subjectKey] || subjectKey}'s question set before.`,
-        () => generateExtraContentForSubject(S.category, subjectKey)
+        () => { if (!hasAICredit()) { showAIPaywall(); return; } generateExtraContentForSubject(S.category, subjectKey); }
       );
     }
   }
@@ -1446,28 +1485,80 @@
     renderLibraryContent();
     if (alreadyCompleted) {
       const tabNoun = { flashcards: 'flashcards', formulas: 'formula sheet', notes: 'notes' }[LIB.tab] || 'material';
+      const generators = { flashcards: generateExtraFlashcardsForSubject, formulas: generateExtraFormulasForSubject, notes: generateExtraNotesForSubject };
       showCompletedModal(
         `You've already been through these ${SUBJECT_LABELS[subjectKey] || subjectKey} ${tabNoun} before.`,
-        () => LIB.tab === 'flashcards'
-          ? generateExtraFlashcardsForSubject(S.category, subjectKey)
-          : LIB.tab === 'notes'
-          ? generateExtraNotesForSubject(S.category, subjectKey)
-          : openProjectHelper() // formulas generation still isn't built — notes now is
+        () => {
+          // This path previously skipped the credit check that the other
+          // two AI entry points (the persistent bar, the end-of-list
+          // banner) both correctly enforce — meaning a student with zero
+          // credits could still trigger a real, billed generation for
+          // free through this specific modal. Matched to the same
+          // hasAICredit() gate used everywhere else.
+          if (!hasAICredit()) { showAIPaywall(); return; }
+          generators[LIB.tab](S.category, subjectKey);
+        }
       );
     }
   }
+
+  const LIBRARY_TAB_META = {
+    flashcards: { noun: 'flashcards', fn: generateExtraFlashcardsForSubject },
+    formulas:   { noun: 'formulas',   fn: generateExtraFormulasForSubject },
+    notes:      { noun: 'notes',      fn: generateExtraNotesForSubject },
+  };
 
   function renderLibraryContent() {
     const resBank = getResourceBank(S.category);
     const res = resBank[LIB.subject] || {};
     const body = document.getElementById('libraryBody');
+    const meta = LIBRARY_TAB_META[LIB.tab];
+
+    // A persistent, always-visible AI action — deliberately not hidden
+    // behind reaching the end of a list or a repeat visit. It sits above
+    // the content itself so the option is in reach the moment the tab
+    // opens, on every visit, not just as a late-stage nudge.
+    body.innerHTML = `
+      <div class="library-ai-bar">
+        <button class="library-ai-bar-btn" id="libraryAIBarBtn">✨ Generate more ${meta.noun} with AI</button>
+      </div>
+      <div id="libraryTabBody"></div>
+    `;
+    document.getElementById('libraryAIBarBtn').addEventListener('click', () => {
+      if (!hasAICredit()) { showAIPaywall(); return; }
+      meta.fn(S.category, LIB.subject);
+    });
+
+    const tabBody = document.getElementById('libraryTabBody');
+
+    // One delegated listener, attached exactly once when this fresh
+    // tabBody element is created — not inside renderFormulas/renderNotes
+    // themselves, since those get called again on this SAME element every
+    // time AI generation refreshes in place, which would otherwise stack
+    // up duplicate listeners (and duplicate "Explain" API calls) with
+    // every successful generation. The listener always reads the CURRENT
+    // item list off tabBody._explainItems, kept fresh by whichever render
+    // function last ran, rather than closing over a stale array.
+    tabBody.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-explain-idx]');
+      if (!btn || !tabBody._explainItems) return;
+      const idx = Number(btn.dataset.explainIdx);
+      const item = tabBody._explainItems[idx];
+      if (!item) return;
+      const resultEl = tabBody.querySelector(`[data-explain-result="${idx}"]`);
+      const subjectLabel = SUBJECT_LABELS[LIB.subject] || LIB.subject;
+      const prompt = LIB.tab === 'formulas'
+        ? `I'm studying ${subjectLabel}. Here's a formula I'm reviewing:\n"${item.title}": ${item.formula}\n${item.note ? 'Note: ' + item.note : ''}\nCan you explain when and why this formula is used, and give a simple way to remember it? Keep it short.`
+        : `I'm studying ${subjectLabel}. Here's a study note I'm reviewing:\n"${item.topic}": ${item.summary}\nCan you expand on this with more detail or a worked example? Keep it short.`;
+      explainLibraryItem(prompt, btn, resultEl);
+    });
 
     if (LIB.tab === 'flashcards') {
-      renderFlashcards(body, res.flashcards || []);
+      renderFlashcards(tabBody, res.flashcards || []);
     } else if (LIB.tab === 'formulas') {
-      renderFormulas(body, res.formulas || []);
+      renderFormulas(tabBody, res.formulas || []);
     } else if (LIB.tab === 'notes') {
-      renderNotes(body, res.notes || []);
+      renderNotes(tabBody, res.notes || []);
     }
   }
 
@@ -1498,6 +1589,8 @@
         <button class="btn btn-primary" id="flNext">Next →</button>
       </div>
       <button class="flashcard-shuffle-btn" id="flShuffle">🔀 Shuffle cards</button>
+      <button class="explain-differently-btn" id="flExplainBtn">✨ Explain this differently</button>
+      <div id="flExplainResult"></div>
     `;
 
     document.getElementById('flashcardEl').addEventListener('click', () => {
@@ -1513,7 +1606,7 @@
         // being silently ignored (this button used to just be disabled here).
         showCompletedModal(
           `You've reached the end of these ${SUBJECT_LABELS[LIB.subject] || LIB.subject} flashcards.`,
-          () => generateExtraFlashcardsForSubject(S.category, LIB.subject),
+          () => { if (!hasAICredit()) { showAIPaywall(); return; } generateExtraFlashcardsForSubject(S.category, LIB.subject); },
           { title: 'That\'s all for now!', icon: '🎉', continueLabel: 'Stay here' }
         );
         return;
@@ -1524,6 +1617,11 @@
       LIB.cards = shuffleArray(LIB.cards); LIB.idx = 0; LIB.flipped = false;
       showToast('Shuffled!', 1200);
       renderFlashcards(body, cards);
+    });
+    document.getElementById('flExplainBtn').addEventListener('click', () => {
+      const subjectLabel = SUBJECT_LABELS[LIB.subject] || LIB.subject;
+      const prompt = `I'm studying ${subjectLabel}. Here's a flashcard I'm reviewing:\nTerm: "${card.term}"\nDefinition: "${card.definition}"\nCan you explain this a different way — maybe with a simpler analogy or a worked example? Keep it short.`;
+      explainLibraryItem(prompt, document.getElementById('flExplainBtn'), document.getElementById('flExplainResult'));
     });
 
     if (LIB.idx === LIB.cards.length - 2 && LIB.cards.length >= 2) {
@@ -1547,30 +1645,69 @@
   }
 
   function renderFormulas(body, formulas) {
-    if (!formulas.length) { body.innerHTML = '<div class="lib-empty">No formula sheet for this subject yet.</div>'; return; }
+    if (!formulas.length) {
+      body.innerHTML = '<div class="lib-empty">No formula sheet for this subject yet.</div>';
+      renderExpandBanner(
+        body,
+        `No formulas here yet.`,
+        hasAICredit() ? 'Try generating some with AI →' : 'Unlock AI to try →',
+        () => { hasAICredit() ? generateExtraFormulasForSubject(S.category, LIB.subject) : showAIPaywall(); }
+      );
+      return;
+    }
+    const shuffled = shuffleArray(formulas);
     // Shuffled per render so a student who habitually reads top-to-bottom
     // and stops partway sees different formulas first each visit, even
     // though the full list still renders every time either way.
-    body.innerHTML = shuffleArray(formulas).map(f => `
+    body.innerHTML = shuffled.map((f, i) => `
       <div class="formula-card">
         <div class="formula-title">${f.title}</div>
         <div class="formula-expr">${f.formula}</div>
         <div class="formula-note">${f.note || ''}</div>
+        <button class="explain-differently-btn" data-explain-idx="${i}">✨ Explain this</button>
+        <div data-explain-result="${i}"></div>
       </div>`).join('');
+    // Read by the single delegated click listener attached once in
+    // renderLibraryContent — kept fresh here on every render (including
+    // in-place AI refreshes) without ever re-registering a listener.
+    body._explainItems = shuffled;
+
     // Shown as a full list, not stepped through card-by-card like
     // flashcards — so "viewed this tab" is the honest equivalent of
     // "reached the end" for this particular layout.
     markCompleted(S.category, LIB.subject, 'library-formulas');
+    renderExpandBanner(
+      body,
+      `That's ${formulas.length} ${SUBJECT_LABELS[LIB.subject] || LIB.subject} formulas for now.`,
+      hasAICredit() ? 'Add more formulas with AI →' : 'Unlock more with AI →',
+      () => { hasAICredit() ? generateExtraFormulasForSubject(S.category, LIB.subject) : showAIPaywall(); }
+    );
   }
 
   function renderNotes(body, notes) {
-    if (!notes.length) { body.innerHTML = '<div class="lib-empty">No concept notes for this subject yet.</div>'; return; }
+    if (!notes.length) {
+      body.innerHTML = '<div class="lib-empty">No concept notes for this subject yet.</div>';
+      renderExpandBanner(
+        body,
+        `No notes here yet.`,
+        hasAICredit() ? 'Try generating some with AI →' : 'Unlock AI to try →',
+        () => { hasAICredit() ? generateExtraNotesForSubject(S.category, LIB.subject) : showAIPaywall(); }
+      );
+      return;
+    }
+    const shuffled = shuffleArray(notes);
     // Same reasoning as renderFormulas — shuffled per render for freshness.
-    body.innerHTML = shuffleArray(notes).map(n => `
+    body.innerHTML = shuffled.map((n, i) => `
       <div class="note-card">
         <div class="note-topic">${n.topic}</div>
         <div class="note-summary">${n.summary}</div>
+        <button class="explain-differently-btn" data-explain-idx="${i}">✨ Explain this further</button>
+        <div data-explain-result="${i}"></div>
       </div>`).join('');
+    // Read by the single delegated click listener attached once in
+    // renderLibraryContent — see the matching comment in renderFormulas.
+    body._explainItems = shuffled;
+
     markCompleted(S.category, LIB.subject, 'library-notes');
 
     // Notes previously had no AI entry point at all — this is the
@@ -3530,6 +3667,41 @@
     } catch (err) {
       showToast("Couldn't reach the AI tutor right now — check your connection and try again.");
       btn.disabled = false; btn.textContent = '✨ Still confused? Explain this differently';
+    }
+  }
+
+  /** Same "Explain Differently" idea, generalised to work on any single
+   * Study Library item — a flashcard, a formula, or a note. Used by all
+   * three renderX() functions in the Study Library, each passing in its
+   * own subject-appropriate prompt and the specific DOM nodes to update.
+   * Kept as one shared function rather than three copies so the credit
+   * check, error handling, and button states can never drift apart. */
+  async function explainLibraryItem(prompt, btn, resultEl) {
+    if (!btn || !resultEl) return;
+    if (!hasAICredit()) { showAIPaywall(); return; }
+
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Thinking…';
+    resultEl.innerHTML = '';
+
+    try {
+      const res = await fetch(API_BASE + '/api/project-helper', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: SUBJECT_LABELS[LIB.subject] || LIB.subject, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.reply) {
+        consumeAICredit();
+        resultEl.innerHTML = `<div class="explain-ai-bubble">${safe(data.reply)}</div>`;
+        btn.classList.add('hidden');
+      } else {
+        showToast("Couldn't reach the AI tutor right now — check your connection and try again.");
+        btn.disabled = false; btn.textContent = originalLabel;
+      }
+    } catch (err) {
+      showToast("Couldn't reach the AI tutor right now — check your connection and try again.");
+      btn.disabled = false; btn.textContent = originalLabel;
     }
   }
 
