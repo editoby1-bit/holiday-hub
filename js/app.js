@@ -288,8 +288,11 @@
         return;
       }
       consumeAICredit();
-      // Same ephemeral-for-this-session pattern as generateExtraContentForSubject.
+      // Merges into memory for this session AND persists to localStorage
+      // so it survives a reload — this is now genuinely part of this
+      // device's permanent offline library, not a session-only bonus.
       r.flashcards = (r.flashcards || []).concat(data.flashcards);
+      saveAIGeneratedItems(category, subject, 'flashcards', data.flashcards);
       // If mid-Library on this exact subject's flashcard tab, refresh in place.
       if (LIB.subject === subject && LIB.tab === 'flashcards') {
         LIB.cards = LIB.cards.concat(data.flashcards);
@@ -305,9 +308,8 @@
   /** Mirrors generateExtraFlashcardsForSubject exactly, but for the Notes
    * tab — this used to not exist at all (Notes had no AI generation path;
    * "already completed" fell back to opening Project Helper's chat
-   * instead of actually generating notes). Same ephemeral-for-this-session
-   * pattern: merges into the live in-memory resource bank, not written
-   * back to the static data files. */
+   * instead of actually generating notes). Persisted via
+   * saveAIGeneratedItems, same as flashcards and formulas. */
   async function generateExtraNotesForSubject(category, subject) {
     showToast('Generating fresh notes with AI…', 4000);
     try {
@@ -328,6 +330,7 @@
       }
       consumeAICredit();
       r.notes = (r.notes || []).concat(data.notes);
+      saveAIGeneratedItems(category, subject, 'notes', data.notes);
       // If mid-Library on this exact subject's notes tab, refresh in place.
       if (LIB.subject === subject && LIB.tab === 'notes') {
         renderNotes(document.getElementById('libraryTabBody'), r.notes);
@@ -368,6 +371,7 @@
       }
       consumeAICredit();
       r.formulas = (r.formulas || []).concat(data.formulas);
+      saveAIGeneratedItems(category, subject, 'formulas', data.formulas);
       if (LIB.subject === subject && LIB.tab === 'formulas') {
         renderFormulas(document.getElementById('libraryTabBody'), r.formulas);
       }
@@ -1012,6 +1016,49 @@
     return cat === 'junior' ? JUNIOR_RESOURCES : SENIOR_RESOURCES;
   }
 
+  /** AI-generated flashcards/formulas/notes used to only live in memory —
+   * mutating SENIOR_RESOURCES/JUNIOR_RESOURCES directly works fine for
+   * the current tab, but a page reload re-parses the static data files
+   * fresh, so everything a subscriber generated would silently vanish.
+   * For content someone paid credits for, that's a real problem, not
+   * just an inconvenience — it also meant regenerating after every
+   * reload burned MORE credits for content they'd already unlocked.
+   *
+   * Fix: AI-generated items are additionally saved to this localStorage
+   * key, namespaced by category/subject/type, and re-applied on top of
+   * the static banks once at startup — so they become a genuine
+   * permanent part of that device's offline library, not a
+   * session-only bonus. */
+  const AI_RESOURCES_KEY = 'hh-ai-resources-v1';
+
+  function aiResourceOverlayKey(category, subject, type) {
+    return `${category}:${subject}:${type}`;
+  }
+
+  function saveAIGeneratedItems(category, subject, type, items) {
+    if (!items || !items.length) return;
+    const store = loadSafe(AI_RESOURCES_KEY, {});
+    const key = aiResourceOverlayKey(category, subject, type);
+    store[key] = (store[key] || []).concat(items);
+    saveSafe(AI_RESOURCES_KEY, store);
+  }
+
+  /** Called once at startup — merges any previously-generated AI content
+   * back into the in-memory resource banks before anything else reads
+   * from them, so from the app's perspective it's indistinguishable from
+   * content that shipped in the static files. */
+  function applyAIResourceOverlay() {
+    const store = loadSafe(AI_RESOURCES_KEY, {});
+    Object.keys(store).forEach(key => {
+      const [category, subject, type] = key.split(':');
+      const resBank = getResourceBank(category);
+      const res = resBank[subject] || (resBank[subject] = { flashcards: [], formulas: [], notes: [] });
+      const existingIds = new Set((res[type] || []).map(item => item.id).filter(Boolean));
+      const toAdd = (store[key] || []).filter(item => !item.id || !existingIds.has(item.id));
+      res[type] = (res[type] || []).concat(toAdd);
+    });
+  }
+
   const MIXED_POOL_MODES = ['scramble', 'formula']; // these two have a genuine standalone mixed-subject mode, not a disguised fallback
 
   function openSubjectPicker(mode) {
@@ -1650,13 +1697,13 @@
           </div>
         </div>
       </div>
+      <button class="explain-differently-btn" id="flExplainBtn">✨ Explain this differently</button>
+      <div id="flExplainResult"></div>
       <div class="flashcard-nav-row">
         <button class="btn btn-ghost" id="flPrev" ${LIB.idx === 0 ? 'disabled' : ''}>← Previous</button>
         <button class="btn btn-primary" id="flNext">Next →</button>
       </div>
       <button class="flashcard-shuffle-btn" id="flShuffle">🔀 Shuffle cards</button>
-      <button class="explain-differently-btn" id="flExplainBtn">✨ Explain this differently</button>
-      <div id="flExplainResult"></div>
     `;
 
     document.getElementById('flashcardEl').addEventListener('click', () => {
@@ -3736,6 +3783,23 @@
     }
   }
 
+  /** Cache for AI explanations — the same flashcard/formula/note asked
+   * about twice (e.g. revisited via Previous/Next, or re-opened on a
+   * later visit) would otherwise burn another API call and another
+   * credit for what's very likely an identical answer. Keyed by a hash
+   * of the exact prompt sent, since the prompt already fully encodes the
+   * subject and the specific item being asked about. */
+  const EXPLAIN_CACHE_KEY = 'hh-explain-cache-v1';
+
+  function simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return hash.toString(36);
+  }
+
   /** Same "Explain Differently" idea, generalised to work on any single
    * Study Library item — a flashcard, a formula, or a note. Used by all
    * three renderX() functions in the Study Library, each passing in its
@@ -3744,6 +3808,15 @@
    * check, error handling, and button states can never drift apart. */
   async function explainLibraryItem(prompt, btn, resultEl) {
     if (!btn || !resultEl) return;
+
+    const cacheKey = simpleHash(prompt);
+    const cache = loadSafe(EXPLAIN_CACHE_KEY, {});
+    if (cache[cacheKey]) {
+      resultEl.innerHTML = `<div class="explain-ai-bubble">${safe(cache[cacheKey])}</div>`;
+      btn.classList.add('hidden');
+      return;
+    }
+
     if (!hasAICredit()) { showAIPaywall(); return; }
 
     const originalLabel = btn.textContent;
@@ -3761,6 +3834,9 @@
         consumeAICredit();
         resultEl.innerHTML = `<div class="explain-ai-bubble">${safe(data.reply)}</div>`;
         btn.classList.add('hidden');
+        const freshCache = loadSafe(EXPLAIN_CACHE_KEY, {});
+        freshCache[cacheKey] = data.reply;
+        saveSafe(EXPLAIN_CACHE_KEY, freshCache);
       } else {
         showToast("Couldn't reach the AI tutor right now — check your connection and try again.");
         btn.disabled = false; btn.textContent = originalLabel;
@@ -3888,6 +3964,7 @@
      INIT
   ──────────────────────────────── */
   document.addEventListener('DOMContentLoaded', () => {
+    applyAIResourceOverlay();
     initCategoryTabs();
     initFeatureGrid();
     initBackButtons();
