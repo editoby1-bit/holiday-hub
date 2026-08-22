@@ -1451,12 +1451,71 @@
       return;
     }
 
-    LIB = { subject: subjectKey, tab: tabs[0], cards: [], idx: 0, flipped: false };
+    LIB = { subject: subjectKey, tab: null, cards: [], idx: 0, flipped: false };
     setLastActivity(S.category, subjectKey, 'library');
     document.getElementById('libraryTitle').textContent = SUBJECT_LABELS[subjectKey] || subjectKey;
+    document.getElementById('libraryTabs').innerHTML = ''; // tabs only appear once a segment is chosen
 
-    const totalItems = (res.flashcards || []).length + (res.formulas || []).length + (res.notes || []).length;
+    showScreen('libraryScreen');
+    renderLibraryChooser(subjectKey);
+  }
+
+  const LIBRARY_CHOOSER_META = {
+    flashcards: { icon: '🗂', label: 'Flashcards', noun: 'cards' },
+    formulas:   { icon: '∑',  label: 'Formulas',   noun: 'formulas' },
+    notes:      { icon: '📝', label: 'Notes',       noun: 'notes' },
+  };
+
+  /** The landing view for a subject's Study Library — three large,
+   * equally-weighted tiles a person must deliberately tap one of. Used to
+   * default straight into Flashcards with two small pill tabs alongside,
+   * which made it easy to assume that was the only content on offer
+   * (Formulas and Notes existed the whole time, just easy to miss). This
+   * is the fix: nobody can land here without seeing all three named and
+   * counted up front. */
+  function renderLibraryChooser(subjectKey) {
+    const resBank = getResourceBank(S.category);
+    const res = resBank[subjectKey] || {};
+    const body = document.getElementById('libraryBody');
+    const counts = {
+      flashcards: (res.flashcards || []).length,
+      formulas: (res.formulas || []).length,
+      notes: (res.notes || []).length,
+    };
+
+    body.innerHTML = `
+      <div class="library-chooser">
+        ${Object.keys(LIBRARY_CHOOSER_META).filter(t => counts[t] > 0).map(t => `
+          <button class="library-chooser-tile" data-choose-tab="${t}">
+            <div class="library-chooser-icon">${LIBRARY_CHOOSER_META[t].icon}</div>
+            <div class="library-chooser-label">${LIBRARY_CHOOSER_META[t].label}</div>
+            <div class="library-chooser-count">${counts[t]} ${LIBRARY_CHOOSER_META[t].noun}</div>
+          </button>
+        `).join('')}
+      </div>
+    `;
+    body.querySelectorAll('[data-choose-tab]').forEach(btn => {
+      btn.addEventListener('click', () => enterLibraryTab(subjectKey, btn.dataset.chooseTab));
+    });
+
+    const totalItems = counts.flashcards + counts.formulas + counts.notes;
     maybeShowThinLibraryNudge(S.category, subjectKey, totalItems);
+  }
+
+  /** Called once a chooser tile is tapped — this is where the pill tab
+   * bar actually appears, so someone already inside can still switch
+   * quickly between segments without dropping back to the chooser every
+   * time; the chooser's job is just to make sure they land on it once,
+   * deliberately, on the way in. */
+  function enterLibraryTab(subjectKey, tab) {
+    const resBank = getResourceBank(S.category);
+    const res = resBank[subjectKey] || { flashcards: [], formulas: [], notes: [] };
+    const tabs = [];
+    if ((res.flashcards || []).length) tabs.push('flashcards');
+    if ((res.formulas || []).length) tabs.push('formulas');
+    if ((res.notes || []).length) tabs.push('notes');
+
+    LIB.tab = tab; LIB.idx = 0; LIB.flipped = false; LIB.cards = [];
 
     const tabLabels = { flashcards: '🗂 Flashcards', formulas: '∑ Formulas', notes: '📝 Notes' };
     document.getElementById('libraryTabs').innerHTML = tabs.map(t =>
@@ -1464,14 +1523,19 @@
     document.querySelectorAll('.lib-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         LIB.tab = btn.dataset.tab;
-        LIB.idx = 0; LIB.flipped = false;
+        LIB.idx = 0; LIB.flipped = false; LIB.cards = [];
         document.querySelectorAll('.lib-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === LIB.tab));
         checkAndRenderLibraryTab(subjectKey);
       });
     });
 
-    showScreen('libraryScreen');
     checkAndRenderLibraryTab(subjectKey);
+  }
+
+  function backToLibraryChooser(subjectKey) {
+    LIB.tab = null; LIB.idx = 0; LIB.flipped = false; LIB.cards = [];
+    document.getElementById('libraryTabs').innerHTML = '';
+    renderLibraryChooser(subjectKey);
   }
 
   /** Shared by openLibrary and the tab-switch handler — checking
@@ -1519,11 +1583,13 @@
     // the content itself so the option is in reach the moment the tab
     // opens, on every visit, not just as a late-stage nudge.
     body.innerHTML = `
+      <button class="library-back-to-chooser" id="libraryBackToChooser">← Study Library</button>
       <div class="library-ai-bar">
         <button class="library-ai-bar-btn" id="libraryAIBarBtn">✨ Generate more ${meta.noun} with AI</button>
       </div>
       <div id="libraryTabBody"></div>
     `;
+    document.getElementById('libraryBackToChooser').addEventListener('click', () => backToLibraryChooser(LIB.subject));
     document.getElementById('libraryAIBarBtn').addEventListener('click', () => {
       if (!hasAICredit()) { showAIPaywall(); return; }
       meta.fn(S.category, LIB.subject);
