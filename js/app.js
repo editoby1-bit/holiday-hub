@@ -224,10 +224,18 @@
         return;
       }
       consumeAICredit();
-      // Merges into the live in-memory bank for this session — same
-      // ephemeral pattern already used for game top-up and Challenge's AI
-      // Boost (not written back to the static data files, gone on reload).
+      // Persisted now, matching the fix already applied to flashcards/
+      // formulas/notes — this used to be ephemeral (comment above used
+      // to admit it: "not written back... gone on reload"), which meant
+      // Speed Round's mid-game top-up, Revision, Quiz, and Challenge's AI
+      // Boost all quietly lost any AI-generated questions on refresh, and
+      // couldn't benefit from each other's generations either, since each
+      // was working off a bank that reset on every reload. One fix here
+      // means any game or mode reading from getBank(category)[subject]
+      // automatically sees everything ever generated for that subject,
+      // from any entry point, permanently.
       bank.objective = (bank.objective || []).concat(data.questions);
+      saveAIGeneratedItems(category, subject, 'objective', data.questions);
       // If the student is mid-Revision on this exact subject, extend their
       // current session too, rather than making them back out and restart.
       if (S.mode === 'revision' && S.subject === subject && S.category === category) {
@@ -792,7 +800,7 @@
     if (continueBtn) continueBtn.addEventListener('click', () => {
       ensureUser(() => {
         if (last.mode === 'revision') startRevision(last.subject);
-        else if (last.mode === 'game') startSpeedRound(last.subject);
+        else if (last.mode === 'game') startSpeedRound(last.subject, getLastSpeedLevel());
         else if (last.mode === 'tf') startTrueFalseBlitz(last.subject);
         else if (last.mode === 'memory') startMemoryMatch(last.subject);
         else if (last.mode === 'library') openLibrary(last.subject);
@@ -996,7 +1004,7 @@
         let task = null;
         plan.days.forEach(d => d.tasks.forEach(t => { if (t.id === id) task = t; }));
         if (!task) return;
-        if (task.mode === 'game') startSpeedRound(task.subject);
+        if (task.mode === 'game') startSpeedRound(task.subject, getLastSpeedLevel());
         else startQuizSetup(task.subject);
       });
     });
@@ -1046,16 +1054,20 @@
   /** Called once at startup — merges any previously-generated AI content
    * back into the in-memory resource banks before anything else reads
    * from them, so from the app's perspective it's indistinguishable from
-   * content that shipped in the static files. */
+   * content that shipped in the static files. Two different top-level
+   * objects need this: getResourceBank (flashcards/formulas/notes) and
+   * getBank (the MCQ question pool, keyed 'objective') — same overlay
+   * store, routed to the right target by type. */
   function applyAIResourceOverlay() {
     const store = loadSafe(AI_RESOURCES_KEY, {});
     Object.keys(store).forEach(key => {
       const [category, subject, type] = key.split(':');
-      const resBank = getResourceBank(category);
-      const res = resBank[subject] || (resBank[subject] = { flashcards: [], formulas: [], notes: [] });
-      const existingIds = new Set((res[type] || []).map(item => item.id).filter(Boolean));
+      const target = type === 'objective'
+        ? (getBank(category)[subject] || (getBank(category)[subject] = { objective: [] }))
+        : (getResourceBank(category)[subject] || (getResourceBank(category)[subject] = { flashcards: [], formulas: [], notes: [] }));
+      const existingIds = new Set((target[type] || []).map(item => item.id).filter(Boolean));
       const toAdd = (store[key] || []).filter(item => !item.id || !existingIds.has(item.id));
-      res[type] = (res[type] || []).concat(toAdd);
+      target[type] = (target[type] || []).concat(toAdd);
     });
   }
 
@@ -1845,6 +1857,46 @@
   const GAME_MIN_QUEUE = 8;      // fetch more AI questions when queue drops below this
   const GAME_LOCK_MS = 550;      // pause after tap to show correct/incorrect before advancing
 
+  const SPEED_LEVELS = {
+    quick:    { id: 'quick',    label: 'Quick Fire', secs: 30,  icon: '⚡', detail: '30 seconds — a fast burst.' },
+    standard: { id: 'standard', label: 'Standard',   secs: 60,  icon: '🔥', detail: '60 seconds — the classic pace.' },
+    marathon: { id: 'marathon', label: 'Marathon',   secs: 120, icon: '🏃', detail: '120 seconds — go the distance.' },
+  };
+  const SPEED_LEVEL_KEY = 'hh-speed-level-v1';
+  function getLastSpeedLevel() { return loadSafe(SPEED_LEVEL_KEY, 'standard'); }
+
+  /** Shown on a fresh entry into Speed Round from the games hub, so a
+   * player picks their pace deliberately every time rather than always
+   * getting the same fixed 60-second round. "Continue where you left
+   * off", study-plan tasks, and "Play Again" all pass a remembered level
+   * straight through instead, so quick replays don't add friction. */
+  function showSpeedLevelPicker(subjectKey) {
+    const meta = subjectMeta(subjectKey);
+    document.getElementById('slSubjectLine').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey}`;
+    const opts = document.getElementById('slOptions');
+    opts.innerHTML = Object.values(SPEED_LEVELS).map(lv => `
+      <button class="speed-level-btn" data-level="${lv.id}">
+        <span class="speed-level-icon">${lv.icon}</span>
+        <span>
+          <div class="speed-level-label">${lv.label}</div>
+          <div class="speed-level-detail">${lv.detail}</div>
+        </span>
+      </button>
+    `).join('');
+    opts.querySelectorAll('[data-level]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('speedLevelModal').classList.add('hidden');
+        startSpeedRound(subjectKey, btn.dataset.level);
+      });
+    });
+    document.getElementById('speedLevelModal').classList.remove('hidden');
+  }
+
+  function initSpeedLevelPicker() {
+    const closeBtn = document.getElementById('slClose');
+    if (closeBtn) closeBtn.addEventListener('click', () => document.getElementById('speedLevelModal').classList.add('hidden'));
+  }
+
   let G = { kind: 'speed', subject: null, queue: [], idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
 
   function stopGameTimer() {
@@ -1852,7 +1904,14 @@
     S.gameTimerInterval = null;
   }
 
-  function startSpeedRound(subjectKey) {
+  function startSpeedRound(subjectKey, level) {
+    if (!level) {
+      showSpeedLevelPicker(subjectKey);
+      return;
+    }
+    saveSafe(SPEED_LEVEL_KEY, level);
+    const levelMeta = SPEED_LEVELS[level] || SPEED_LEVELS.standard;
+
     const bank = getBank(S.category);
     const subj = bank[subjectKey];
     if (!subj || !subj.objective || !subj.objective.length) {
@@ -1863,9 +1922,9 @@
     const pool = subj.objective.slice();
     const { questions } = pickQuestions(S.category, subjectKey, pool, Math.min(pool.length, 25));
 
-    G = { kind: 'speed', subject: subjectKey, queue: questions, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    G = { kind: 'speed', subject: subjectKey, level, queue: questions, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
     S.mode = 'game';
-    S.gameTimerSecs = GAME_DURATION_SECS;
+    S.gameTimerSecs = levelMeta.secs;
     setLastActivity(S.category, subjectKey, 'game');
 
     document.getElementById('gameScore').textContent = '0';
@@ -1873,7 +1932,7 @@
     updateGameTimerDisplay();
     const catLabel = CONTENT_MANIFEST[S.category].label;
     const meta = subjectMeta(subjectKey);
-    document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel}`;
+    document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel} · ${levelMeta.label}`;
 
     renderGameQuestion();
     showScreen('gameScreen');
@@ -2509,9 +2568,30 @@
     const eligible = shuffleArray(manifest.subjects.filter(s => ((resBank[s] || {}).flashcards || []).length >= 3));
     const bucketSubjects = eligible.slice(0, Math.min(4, eligible.length));
 
+    // Some subjects legitimately share terms (e.g. "Democracy" is a real
+    // flashcard in both Government and Civic Education) — if this
+    // round happens to pick both, a term drawn from one bucket would
+    // score as "wrong" if tapped in the other, even though the answer
+    // is genuinely correct there too. Rather than deleting legitimate
+    // content from either subject, exclude terms that appear in more
+    // than one of THIS round's chosen buckets — dynamic, so it keeps
+    // working correctly as content keeps growing, not just a one-off
+    // patch for today's known overlaps.
+    const termSubjectCount = {};
+    bucketSubjects.forEach(subj => {
+      const seen = new Set();
+      (resBank[subj].flashcards || []).forEach(c => {
+        const key = c.term.trim().toLowerCase();
+        if (seen.has(key)) return; // don't double-count dupes within the same subject
+        seen.add(key);
+        termSubjectCount[key] = (termSubjectCount[key] || 0) + 1;
+      });
+    });
+
     const items = [];
     bucketSubjects.forEach(subj => {
-      const cards = shuffleArray((resBank[subj].flashcards || []).slice());
+      const cards = shuffleArray((resBank[subj].flashcards || []).slice())
+        .filter(c => termSubjectCount[c.term.trim().toLowerCase()] === 1);
       cards.slice(0, 8).forEach(c => items.push({ id: subj + '::' + c.term, term: c.term, subject: subj }));
     });
     return { bucketSubjects, items: shuffleArray(items) };
@@ -2731,7 +2811,20 @@
   }
 
   async function maybeTopUpQueue() {
-    if (!G.subject) return; // mixed-subject modes (Sort, Sequence) have no single bank to draw AI top-up from
+    // Only 'speed' is actually reachable here (called from startSpeedRound
+    // and the shared renderSpeedItem) AND has a matching item shape
+    // ({question,options,answer}) for what this fetches. 'tf' was assumed
+    // to have live top-up too in earlier notes — checked, and it doesn't:
+    // renderTFItem() never calls this function, and even if it did, its
+    // items are {statement,isTrue,sourceId}-shaped, incompatible with
+    // this endpoint's MCQ output. 'formula' happens to produce
+    // MCQ-shaped items (so it silently passed the old subject-only
+    // guard) but its options are formula strings, not curriculum trivia
+    // — topping it up here would inject real quiz questions into what's
+    // supposed to be an exclusively formula-matching game. Explicit
+    // allowlist instead of inferring from G.subject being set.
+    if (G.kind !== 'speed') return;
+    if (!G.subject) return; // shouldn't happen for 'speed', but stay defensive
     const remaining = G.queue.length - G.idx;
     if (remaining >= GAME_MIN_QUEUE || G.fetchingMore) return;
     if (!hasAICredit()) {
@@ -2762,6 +2855,14 @@
       if (res.ok && data.ok && data.questions.length) {
         consumeAICredit();
         G.queue = G.queue.concat(data.questions);
+        // Previously only extended this round's in-memory queue — the
+        // underlying bank never saw these questions, so even a second
+        // Speed Round on the same subject in the same session wouldn't
+        // benefit, let alone surviving reload. Now both fixed: persisted
+        // via the same overlay as every other AI-generated content type,
+        // and the subject's actual bank is extended too.
+        bank.objective = (bank.objective || []).concat(data.questions);
+        saveAIGeneratedItems(S.category, G.subject, 'objective', data.questions);
         const left = getAICredits().credits;
         showToast(`✨ +${data.questions.length} fresh AI questions added — 1 credit used (${left} left)`, 3200);
       }
@@ -2828,7 +2929,7 @@
       else if (G.kind === 'scramble') startWordScramble(G.subject);
       else if (G.kind === 'formula') startFormulaRush(G.subject);
       else if (G.kind === 'equation') startEquationBuilder();
-      else startSpeedRound(G.subject);
+      else startSpeedRound(G.subject, G.level || getLastSpeedLevel());
     });
     document.getElementById('gameHomeBtn').addEventListener('click', () => { showScreen('homeScreen'); renderDashboardNudge(); updateStudyPlanBanner(); });
   }
@@ -3972,6 +4073,7 @@
     renderCountdown();
     initChallengeModule();
     initGameExplainer();
+    initSpeedLevelPicker();
     initProjectHelper();
     initAIPaywall();
     initLaunchBanner();
