@@ -412,6 +412,16 @@ a { color:inherit; text-decoration:none; }
 .subject-row-mixed { border-color: var(--coral-glow); background: var(--coral-pale); margin-bottom:.6rem; }
 .subject-row-mixed .subject-row-name { color: var(--coral-dk); }
 
+/* AI Live toggle — off by default (offline bank), tap flips to Live. */
+.ai-live-toggle {
+  display:flex; align-items:center; gap:.6rem; width:100%; text-align:left;
+  background: var(--white); border: 1px solid var(--border-w);
+  border-radius: var(--r-m); padding: .7rem .9rem; margin-bottom:.6rem;
+  font-size:.8rem; font-weight:600; color: var(--text-dim);
+}
+.ai-live-toggle.active { background: var(--coral-pale); border-color: var(--coral-glow); color: var(--coral-dk); }
+.ai-live-toggle span:first-child { font-size:1rem; flex-shrink:0; }
+
 .topbar-progress { font-size:.8rem; color:var(--text-dim); font-weight:600; white-space:nowrap; }
 
 /* ══════════════════════════════

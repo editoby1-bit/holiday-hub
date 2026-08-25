@@ -1250,6 +1250,19 @@
     };
     document.getElementById('subjectScreenTitle').textContent = titles[mode] || 'Pick a subject';
 
+    // AI Live toggle — only for the two MCQ-shaped games where a single
+    // batch-generated round genuinely makes sense (Speed Round, True/
+    // False). Deliberately a toggle above the list rather than a second
+    // button per subject row (would double the list's visual weight for
+    // 16+ subjects) — default is off, so nothing changes for anyone who
+    // doesn't touch it.
+    S.aiLiveMode = false;
+    const liveToggleHtml = (mode === 'game' || mode === 'tf') ? `
+      <button class="ai-live-toggle" id="aiLiveToggle">
+        <span id="aiLiveToggleIcon">📚</span>
+        <span id="aiLiveToggleLabel">Playing from the offline bank — tap for an AI Live round instead</span>
+      </button>` : '';
+
     // Explicit "Mixed Subjects" entry — its own honest, always-available
     // option, not something a specific named subject silently turns into.
     const mixedRowHtml = MIXED_POOL_MODES.includes(mode) ? `
@@ -1263,7 +1276,7 @@
       </button>` : '';
 
     const list = document.getElementById('subjectList');
-    list.innerHTML = mixedRowHtml + manifest.subjects.map(key => {
+    list.innerHTML = liveToggleHtml + mixedRowHtml + manifest.subjects.map(key => {
       const label = SUBJECT_LABELS[key] || key;
       const meta = subjectMeta(key);
       let countText, disabled = false;
@@ -1303,7 +1316,13 @@
     list.querySelectorAll('.subject-row:not(.subject-row-disabled)').forEach(row => {
       row.addEventListener('click', () => {
         S.subject = row.dataset.subject === '__mixed__' ? null : row.dataset.subject;
-        if (mode === 'quiz') startQuizSetup(S.subject);
+        // AI Live skips the normal rules-explainer step entirely — the
+        // toggle itself already explained what's about to happen, and
+        // this is a deliberate, explicit opt-in rather than the default
+        // path, so an extra confirmation screen would just be friction.
+        if (S.aiLiveMode && mode === 'game') startSpeedRoundLive(S.subject);
+        else if (S.aiLiveMode && mode === 'tf') startTrueFalseLive(S.subject);
+        else if (mode === 'quiz') startQuizSetup(S.subject);
         else if (mode === 'game') showGameExplainer('game', S.subject);
         else if (mode === 'tf') showGameExplainer('tf', S.subject);
         else if (mode === 'memory') showGameExplainer('memory', S.subject);
@@ -1313,6 +1332,18 @@
         else startRevision(S.subject);
       });
     });
+
+    const liveToggle = document.getElementById('aiLiveToggle');
+    if (liveToggle) {
+      liveToggle.addEventListener('click', () => {
+        S.aiLiveMode = !S.aiLiveMode;
+        liveToggle.classList.toggle('active', S.aiLiveMode);
+        document.getElementById('aiLiveToggleIcon').textContent = S.aiLiveMode ? '✨' : '📚';
+        document.getElementById('aiLiveToggleLabel').textContent = S.aiLiveMode
+          ? 'AI Live round — fresh questions generated just for you (uses 1 AI credit + 1 game round)'
+          : 'Playing from the offline bank — tap for an AI Live round instead';
+      });
+    }
 
     showScreen('subjectScreen');
   }
@@ -2116,6 +2147,69 @@
     maybeTopUpQueue();
   }
 
+  async function startSpeedRoundLive(subjectKey) {
+    if (!hasGamesAccess()) { showGamesPaywall(); return; }
+    showToast('Generating your AI Live round…', 5000);
+    const questions = await fetchLiveMCQBatch(S.category, subjectKey, 15);
+    if (!questions) return; // fetchLiveMCQBatch already showed the right toast/paywall
+    consumeGameRound();
+
+    const levelMeta = SPEED_LEVELS[getLastSpeedLevel()] || SPEED_LEVELS.standard;
+    G = { kind: 'speed', subject: subjectKey, level: getLastSpeedLevel(), isLive: true, queue: shuffleArray(questions), idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'game';
+    S.gameTimerSecs = levelMeta.secs;
+    setLastActivity(S.category, subjectKey, 'game');
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    const catLabel = CONTENT_MANIFEST[S.category].label;
+    const meta = subjectMeta(subjectKey);
+    document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel} · ✨ AI Live`;
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+  async function startTrueFalseLive(subjectKey) {
+    if (!hasGamesAccess()) { showGamesPaywall(); return; }
+    showToast('Generating your AI Live round…', 5000);
+    const questions = await fetchLiveMCQBatch(S.category, subjectKey, 15);
+    if (!questions) return;
+    consumeGameRound();
+
+    const queue = mcqToTFItems(questions);
+    G = { kind: 'tf', subject: subjectKey, isLive: true, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
+    S.mode = 'tf';
+    S.gameTimerSecs = GAME_DURATION_SECS;
+    setLastActivity(S.category, subjectKey, 'tf');
+
+    document.getElementById('gameScore').textContent = '0';
+    document.getElementById('gameStreak').textContent = '0';
+    updateGameTimerDisplay();
+    const catLabel = CONTENT_MANIFEST[S.category].label;
+    const meta = subjectMeta(subjectKey);
+    document.getElementById('gameSubjectBadge').textContent = `${meta.icon} ${SUBJECT_LABELS[subjectKey] || subjectKey} · ${catLabel} · ✨ AI Live`;
+
+    renderGameQuestion();
+    showScreen('gameScreen');
+
+    stopGameTimer();
+    S.gameTimerInterval = setInterval(() => {
+      S.gameTimerSecs--;
+      updateGameTimerDisplay();
+      if (S.gameTimerSecs <= 0) { stopGameTimer(); finishSpeedRound(); }
+    }, 1000);
+  }
+
+
   function updateGameTimerDisplay() {
     const el = document.getElementById('gameTimer');
     el.textContent = S.gameTimerSecs;
@@ -2164,11 +2258,12 @@
      statement (using the real answer) and a "false" one (using a
      wrong option), roughly doubling the effective pool.
   ──────────────────────────────── */
-  function buildTFQueue(subjectKey) {
-    const bank = getBank(S.category);
-    const pool = (bank[subjectKey].objective || []).slice();
+  /** Extracted from buildTFQueue so the AI Live path can reuse the exact
+   * same MCQ-to-true/false transform instead of a second, potentially
+   * drifting copy of this logic. */
+  function mcqToTFItems(questions) {
     const items = [];
-    pool.forEach(q => {
+    questions.forEach(q => {
       if (!q.options || q.options.length < 2) return;
       items.push({
         id: q.id + '-t', sourceId: q.id,
@@ -2186,6 +2281,52 @@
       }
     });
     return shuffleArray(items);
+  }
+
+  function buildTFQueue(subjectKey) {
+    const bank = getBank(S.category);
+    const pool = (bank[subjectKey].objective || []).slice();
+    return mcqToTFItems(pool);
+  }
+
+  /** Shared by both AI Live modes. Unlike the normal top-up flow, this
+   * generates the WHOLE round in one batch call up front rather than
+   * one call per move — a live game needing an API round-trip on every
+   * single question would be slow (real latency mid-timer) and far more
+   * expensive (many small calls instead of one). Costs exactly 1 AI
+   * credit, same as every other generation in the app, regardless of
+   * how many questions come back in the batch. Requires BOTH a games
+   * round AND an AI credit, since it's genuinely both things at once —
+   * playing a game, and consuming fresh AI generation. */
+  async function fetchLiveMCQBatch(category, subjectKey, count) {
+    if (!hasAICredit()) { showAIPaywall(); return null; }
+    const bank = getBank(category);
+    const subj = bank[subjectKey] || (bank[subjectKey] = { objective: [] });
+    const avoid = (subj.objective || []).slice(-40).map(q => q.question);
+    try {
+      const res = await fetch(API_BASE + '/api/generate-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category, subject: SUBJECT_LABELS[subjectKey] || subjectKey,
+          count, avoidQuestions: avoid,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.questions || !data.questions.length) {
+        showToast('Could not start an AI Live round right now — please try again shortly.');
+        return null;
+      }
+      consumeAICredit();
+      // Persisted the same way as everything else generated tonight —
+      // an AI Live round's questions become permanent additions to the
+      // subject's regular bank too, not just a one-off for this round.
+      subj.objective = (subj.objective || []).concat(data.questions);
+      saveAIGeneratedItems(category, subjectKey, 'objective', data.questions);
+      return data.questions;
+    } catch (err) {
+      showToast('Could not start an AI Live round right now — please try again shortly.');
+      return null;
+    }
   }
 
   function startTrueFalseBlitz(subjectKey) {
@@ -3104,7 +3245,12 @@
       body.insertBefore(banner, document.querySelector('.result-actions'));
     }
     document.getElementById('gameReplayBtn').addEventListener('click', () => {
-      if (G.kind === 'tf') startTrueFalseBlitz(G.subject);
+      // Play Again used to always restart offline, even if the round
+      // just finished was AI Live — silently switching modes without
+      // saying so. Now it respects whichever mode was actually played.
+      if (G.isLive && G.kind === 'tf') startTrueFalseLive(G.subject);
+      else if (G.isLive) startSpeedRoundLive(G.subject);
+      else if (G.kind === 'tf') startTrueFalseBlitz(G.subject);
       else if (G.kind === 'sort') startCategorySort();
       else if (G.kind === 'sequence') startSequenceGame();
       else if (G.kind === 'scramble') startWordScramble(G.subject);
