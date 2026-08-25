@@ -162,6 +162,16 @@
       <h2 class="topbar-title">🎮 Games</h2>
     </div>
     <div class="container" style="padding-top:1.25rem; padding-bottom:2rem;">
+      <button class="game-choice-card" data-game="sort">
+        <div class="gc-icon" style="background:rgba(22,163,74,.12);">🗂</div>
+        <div class="gc-text"><h3>Category Sort</h3><p>Terms from mixed subjects — tap the right subject bucket, fast.</p></div>
+        <span class="gc-arrow">→</span>
+      </button>
+      <button class="game-choice-card" data-game="memory">
+        <div class="gc-icon" style="background:rgba(124,58,237,.12);">🧠</div>
+        <div class="gc-text"><h3>Memory Match</h3><p>Flip cards to pair terms with definitions. No timer pressure.</p></div>
+        <span class="gc-arrow">→</span>
+      </button>
       <button class="game-choice-card" data-game="game">
         <div class="gc-icon" style="background:rgba(232,93,74,.12);">⚡</div>
         <div class="gc-text"><h3>Speed Round</h3><p>60 seconds, rapid-fire multiple choice. Build a streak.</p></div>
@@ -170,16 +180,6 @@
       <button class="game-choice-card" data-game="tf">
         <div class="gc-icon" style="background:rgba(37,99,235,.12);">✓✗</div>
         <div class="gc-text"><h3>True or False Blitz</h3><p>Rapid true/false calls. Fastest, simplest, most intense.</p></div>
-        <span class="gc-arrow">→</span>
-      </button>
-      <button class="game-choice-card" data-game="memory">
-        <div class="gc-icon" style="background:rgba(124,58,237,.12);">🧠</div>
-        <div class="gc-text"><h3>Memory Match</h3><p>Flip cards to pair terms with definitions. No timer pressure.</p></div>
-        <span class="gc-arrow">→</span>
-      </button>
-      <button class="game-choice-card" data-game="sort">
-        <div class="gc-icon" style="background:rgba(22,163,74,.12);">🗂</div>
-        <div class="gc-text"><h3>Category Sort</h3><p>Terms from mixed subjects — tap the right subject bucket, fast.</p></div>
         <span class="gc-arrow">→</span>
       </button>
       <button class="game-choice-card" data-game="sequence">
@@ -374,6 +374,17 @@
     </div>
   </div>
 
+  <!-- ════════════════ SPEED ROUND — DIFFICULTY PICKER ════════════════ -->
+  <div id="speedLevelModal" class="overlay hidden">
+    <div class="sheet">
+      <button class="sheet-close" id="slClose">✕</button>
+      <div class="ge-icon">⚡</div>
+      <h3 class="sheet-title">Pick your pace</h3>
+      <p class="ge-subject" id="slSubjectLine"></p>
+      <div class="speed-level-options" id="slOptions"></div>
+    </div>
+  </div>
+
   <!-- ════════════════ ALREADY COMPLETED THIS ════════════════ -->
   <div id="completedModal" class="overlay hidden">
     <div class="sheet">
@@ -396,7 +407,21 @@
       <div class="paywall-price">₦500 <span>for 10 credits, 48 hours to use them</span></div>
       <button class="btn btn-primary btn-block" id="paywallPayBtn">Pay ₦500 →</button>
       <button class="btn btn-ghost btn-block" id="paywallLaterBtn" style="margin-top:.5rem;">Maybe later</button>
-      <p class="paywall-note">Everything else in Holiday Hub — Revision, Quiz, all 8 games, Study Library — stays free, no limit.</p>
+      <p class="paywall-note">Revision, Quiz, and Study Library stay free, no limit. Games have a free daily allowance — see the Games Pass if you've used yours up.</p>
+    </div>
+  </div>
+
+  <!-- ════════════════ GAMES PAYWALL ════════════════ -->
+  <div id="gamesPaywallModal" class="overlay hidden">
+    <div class="sheet">
+      <button class="sheet-close" id="gpClose">✕</button>
+      <div class="paywall-icon">🎮</div>
+      <h3 class="sheet-title" style="text-align:center;">You're out of free game rounds</h3>
+      <p class="sheet-sub" style="text-align:center;">Revision, Quiz, and Study Library stay free forever — this is just for the games.</p>
+      <div class="paywall-price">₦400 <span>for 7 days of unlimited games</span></div>
+      <button class="btn btn-primary btn-block" id="gpPassBtn">Get 7-Day Games Pass →</button>
+      <button class="btn btn-ghost btn-block" id="gpTopupBtn" style="margin-top:.5rem;">Or just add 15 more rounds — ₦150</button>
+      <button class="btn btn-ghost btn-block" id="gpClose2" style="margin-top:.5rem;">Maybe later</button>
     </div>
   </div>
 

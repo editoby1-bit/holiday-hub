@@ -329,6 +329,24 @@ a { color:inherit; text-decoration:none; }
   max-width: 420px;
   animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
 }
+
+/* Challenge a Friend — same reasoning again: a short, self-contained
+   "create or join" decision, not a scrollable content sheet. */
+#quizChallengeModal { align-items:center; padding: 0 1.25rem; }
+#quizChallengeModal .sheet {
+  border-radius: var(--r-l);
+  max-width: 420px;
+  animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
+}
+
+/* Games Paywall — same centered-dialog treatment as every other
+   decision-point modal. */
+#gamesPaywallModal { align-items:center; padding: 0 1.25rem; }
+#gamesPaywallModal .sheet {
+  border-radius: var(--r-l);
+  max-width: 420px;
+  animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
+}
 @keyframes dialog-pop {
   from { transform: scale(.94) translateY(6px); opacity:0; }
   to   { transform: scale(1) translateY(0); opacity:1; }
@@ -1284,6 +1302,21 @@ a { color:inherit; text-decoration:none; }
   content:'✓'; position:absolute; left:0; top:.6rem;
   color: var(--green); font-weight:800; font-size:.85rem;
 }
+
+/* Speed Round difficulty picker — same centered-dialog treatment as the
+   other decision-point modals. */
+#speedLevelModal { align-items:center; padding: 0 1.25rem; }
+#speedLevelModal .sheet { border-radius: var(--r-l); max-width: 420px; animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1); }
+.speed-level-options { display:flex; flex-direction:column; gap:.7rem; }
+.speed-level-btn {
+  display:flex; align-items:center; gap:.9rem; width:100%; text-align:left;
+  background: var(--white); border: 1px solid var(--border-w);
+  border-radius: var(--r-m); padding: .85rem 1rem;
+}
+.speed-level-btn:active { background: var(--cream-w); }
+.speed-level-icon { font-size:1.3rem; flex-shrink:0; }
+.speed-level-label { font-weight:700; font-size:.92rem; color: var(--ink); }
+.speed-level-detail { font-size:.78rem; color: var(--text-dim); margin-top:.1rem; }
 
 /* ══════════════════════════════
    AI PAYWALL

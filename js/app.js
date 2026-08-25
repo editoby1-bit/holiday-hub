@@ -49,6 +49,169 @@
   const PAYSTACK_KEY = 'pk_live_5d12ee2a90900116dc222107e059a06214c085ff';
   const AI_CREDIT_PACK_SIZE = 10;
   const AI_CREDIT_PACK_PRICE_KOBO = 50000; // ₦500
+  const GAMES_PASS_PRICE_KOBO = 40000;     // ₦400 / 7-day unlimited games
+  const GAMES_TOPUP_PRICE_KOBO = 15000;    // ₦150 / +15 rounds, one-off
+  const GAMES_TOPUP_ROUNDS = 15;
+  const FREE_GAME_ROUNDS = 8;
+  const GAMES_PASS_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+  const GAMES_CREDITS_KEY = 'hh-games-credits-v1';
+
+  /** Games used to be entirely free and unlimited — this is the gate that
+   * makes that untrue on purpose: 8 free rounds total across all 8 games,
+   * then either a 7-day unlimited pass or a smaller one-off round top-up.
+   * Deliberately separate from AI_CREDITS_KEY — "can I play at all" and
+   * "can I get fresh AI content while playing" are two different
+   * questions with two different answers, same as the design discussion
+   * settled on. */
+  function getGamesCredits() {
+    return loadSafe(GAMES_CREDITS_KEY, { freeRoundsRemaining: FREE_GAME_ROUNDS, extraRoundsRemaining: 0, passExpiresAt: 0 });
+  }
+
+  function hasGamesAccess() {
+    const g = getGamesCredits();
+    if (g.passExpiresAt && Date.now() < g.passExpiresAt) return true;
+    if (g.freeRoundsRemaining > 0) return true;
+    if (g.extraRoundsRemaining > 0) return true;
+    return false;
+  }
+
+  /** Called once per round START (not completion) — starting and
+   * abandoning still costs a round, same as a real arcade credit, so
+   * there's no incentive to game the gate by bailing early. An active
+   * pass means unlimited play, so nothing gets decremented at all while
+   * one is active. */
+  function consumeGameRound() {
+    const g = getGamesCredits();
+    if (g.passExpiresAt && Date.now() < g.passExpiresAt) return;
+    if (g.freeRoundsRemaining > 0) { g.freeRoundsRemaining--; saveSafe(GAMES_CREDITS_KEY, g); return; }
+    if (g.extraRoundsRemaining > 0) { g.extraRoundsRemaining--; saveSafe(GAMES_CREDITS_KEY, g); }
+  }
+
+  function activateGamesPass() {
+    const g = getGamesCredits();
+    g.passExpiresAt = Date.now() + GAMES_PASS_DURATION_MS;
+    saveSafe(GAMES_CREDITS_KEY, g);
+  }
+
+  function addExtraGameRounds(n) {
+    const g = getGamesCredits();
+    g.extraRoundsRemaining = (g.extraRoundsRemaining || 0) + n;
+    saveSafe(GAMES_CREDITS_KEY, g);
+  }
+
+  /** Read-only access check for the 7 games with a single-phase start
+   * (no intermediate picker step like Speed Round has). Deliberately
+   * does NOT consume a round here — each caller does that itself, after
+   * its own "is there actually content for this subject" check passes,
+   * so a subject with no data can never cost someone a free round for
+   * nothing. */
+  function gateGameStart() {
+    if (!hasGamesAccess()) { showGamesPaywall(); return false; }
+    return true;
+  }
+
+  function showGamesPaywall() {
+    document.getElementById('gamesPaywallModal').classList.remove('hidden');
+  }
+  function hideGamesPaywall() {
+    document.getElementById('gamesPaywallModal').classList.add('hidden');
+  }
+
+  function initGamesPaywall() {
+    const closeBtn = document.getElementById('gpClose');
+    if (closeBtn) closeBtn.addEventListener('click', hideGamesPaywall);
+    const laterBtn = document.getElementById('gpClose2');
+    if (laterBtn) laterBtn.addEventListener('click', hideGamesPaywall);
+    const passBtn = document.getElementById('gpPassBtn');
+    if (passBtn) passBtn.addEventListener('click', purchaseGamesPass);
+    const topupBtn = document.getElementById('gpTopupBtn');
+    if (topupBtn) topupBtn.addEventListener('click', purchaseGamesTopUp);
+  }
+
+  async function purchaseGamesPass() {
+    const email = await getEmailViaModal();
+    if (!email) return;
+    if (typeof window.PaystackPop === 'undefined') {
+      showToast('Payment could not load — check your connection and try again.');
+      return;
+    }
+    const handler = window.PaystackPop.setup({
+      key: PAYSTACK_KEY,
+      email,
+      amount: GAMES_PASS_PRICE_KOBO,
+      currency: 'NGN',
+      ref: 'HH-GP-' + Date.now(),
+      metadata: { custom_fields: [
+        { display_name: 'Product', variable_name: 'product', value: 'Holiday Hub — 7-Day Games Pass' },
+      ]},
+      onClose() {},
+      callback(response) {
+        (async () => {
+          showToast('Confirming payment…');
+          try {
+            const res = await fetch(API_BASE + '/api/verify-payment', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference: response.reference }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.verified || data.tier !== 'hh-games-pass') {
+              showToast('Could not confirm payment yet. If you were charged, contact support with reference: ' + response.reference, 5000);
+              return;
+            }
+            activateGamesPass();
+            hideGamesPaywall();
+            showToast('✅ 7-Day Games Pass unlocked — unlimited games all week!', 4000);
+          } catch (err) {
+            showToast('Could not confirm payment — contact support with reference: ' + response.reference, 5000);
+          }
+        })();
+      },
+    });
+    handler.openIframe();
+  }
+
+  async function purchaseGamesTopUp() {
+    const email = await getEmailViaModal();
+    if (!email) return;
+    if (typeof window.PaystackPop === 'undefined') {
+      showToast('Payment could not load — check your connection and try again.');
+      return;
+    }
+    const handler = window.PaystackPop.setup({
+      key: PAYSTACK_KEY,
+      email,
+      amount: GAMES_TOPUP_PRICE_KOBO,
+      currency: 'NGN',
+      ref: 'HH-GT-' + Date.now(),
+      metadata: { custom_fields: [
+        { display_name: 'Product', variable_name: 'product', value: `Holiday Hub — +${GAMES_TOPUP_ROUNDS} Game Rounds` },
+      ]},
+      onClose() {},
+      callback(response) {
+        (async () => {
+          showToast('Confirming payment…');
+          try {
+            const res = await fetch(API_BASE + '/api/verify-payment', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference: response.reference }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.verified || data.tier !== 'hh-games-topup') {
+              showToast('Could not confirm payment yet. If you were charged, contact support with reference: ' + response.reference, 5000);
+              return;
+            }
+            addExtraGameRounds(GAMES_TOPUP_ROUNDS);
+            hideGamesPaywall();
+            showToast(`✅ +${GAMES_TOPUP_ROUNDS} game rounds added — no expiry, play whenever!`, 4000);
+          } catch (err) {
+            showToast('Could not confirm payment — contact support with reference: ' + response.reference, 5000);
+          }
+        })();
+      },
+    });
+    handler.openIframe();
+  }
+
 
   function getBank(cat) {
     return cat === 'junior' ? JUNIOR_BANK : SENIOR_BANK;
@@ -1905,6 +2068,11 @@
   }
 
   function startSpeedRound(subjectKey, level) {
+    // Checked (read-only) before even showing the pace picker — no point
+    // letting someone choose a difficulty for a game they can't play.
+    // Actual consumption happens only once the game truly begins (below),
+    // not here, so showing/abandoning the picker never costs a round.
+    if (!hasGamesAccess()) { showGamesPaywall(); return; }
     if (!level) {
       showSpeedLevelPicker(subjectKey);
       return;
@@ -1918,6 +2086,7 @@
       showToast('No questions available for this subject yet.');
       return;
     }
+    consumeGameRound();
 
     const pool = subj.objective.slice();
     const { questions } = pickQuestions(S.category, subjectKey, pool, Math.min(pool.length, 25));
@@ -2020,12 +2189,14 @@
   }
 
   function startTrueFalseBlitz(subjectKey) {
+    if (!gateGameStart()) return;
     const bank = getBank(S.category);
     const subj = bank[subjectKey];
     if (!subj || !subj.objective || !subj.objective.length) {
       showToast('No questions available for this subject yet.');
       return;
     }
+    consumeGameRound();
 
     const queue = buildTFQueue(subjectKey);
     G = { kind: 'tf', subject: subjectKey, queue, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false };
@@ -2152,6 +2323,7 @@
   }
 
   function startFormulaRush(subjectKey) {
+    if (!gateGameStart()) return;
     const isMixed = subjectKey === null;
     let formulas = isMixed ? formulasMixed(S.category) : formulasFor(S.category, subjectKey);
     // Defensive only — the subject picker already disables any subject
@@ -2162,6 +2334,7 @@
       showToast('Not enough formula sheet content yet for Formula Rush.');
       return;
     }
+    consumeGameRound();
     const pool = formulasMixed(S.category); // always draw distractors from the widest pool available
     const queue = buildFormulaQueue(formulas.slice(0, 20), pool);
 
@@ -2236,6 +2409,8 @@
   }
 
   function startEquationBuilder() {
+    if (!gateGameStart()) return;
+    consumeGameRound(); // procedurally generated, nothing that can fail — safe to consume immediately after the gate
     const usedQuestions = new Set();
     const queue = [];
     for (let i = 0; i < 25; i++) queue.push(generateEquationItem(usedQuestions));
@@ -2328,6 +2503,8 @@
   }
 
   function startSequenceGame() {
+    if (!gateGameStart()) return;
+    consumeGameRound(); // procedurally generated, nothing that can fail — safe to consume immediately after the gate
     const usedQuestions = new Set();
     const queue = [];
     for (let i = 0; i < 25; i++) queue.push(generateSequenceItem(usedQuestions));
@@ -2391,6 +2568,7 @@
   let _scrambleLetters = [];
 
   function startWordScramble(subjectKey) {
+    if (!gateGameStart()) return;
     const isMixed = subjectKey === null;
     let words = isMixed ? scrambleWordsMixed(S.category) : scrambleWordsFor(S.category, subjectKey);
     // Defensive only — the picker already disables any subject below this
@@ -2400,6 +2578,7 @@
       showToast('Not enough Study Library words yet for Word Scramble.');
       return;
     }
+    consumeGameRound();
     words = shuffleArray(words).slice(0, 15);
     const queue = words.map((c, i) => ({ id: 'scr-' + i + '-' + c.term, word: c.term.toUpperCase(), definition: c.definition || '' }));
 
@@ -2598,11 +2777,13 @@
   }
 
   function startCategorySort() {
+    if (!gateGameStart()) return;
     const { bucketSubjects, items } = buildCategorySortRound();
     if (bucketSubjects.length < 2 || items.length < 6) {
       showToast('Not enough Study Library content yet across subjects for Category Sort.');
       return;
     }
+    consumeGameRound();
 
     G = { kind: 'sort', subject: null, queue: items, idx: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, attempted: 0, usedIds: [], locked: false, fetchingMore: false, bucketSubjects };
     S.mode = 'sort';
@@ -2950,12 +3131,14 @@
   }
 
   function startMemoryMatch(subjectKey) {
+    if (!gateGameStart()) return;
     const resBank = getResourceBank(S.category);
     const cards = ((resBank[subjectKey] || {}).flashcards || []).slice();
     if (cards.length < 4) {
       showToast('Not enough flashcards for Memory Match on this subject yet.');
       return;
     }
+    consumeGameRound();
 
     const shuffledCards = shuffleArray(cards);
     const pairCount = Math.min(6, shuffledCards.length);
@@ -4076,6 +4259,7 @@
     initSpeedLevelPicker();
     initProjectHelper();
     initAIPaywall();
+    initGamesPaywall();
     initLaunchBanner();
     checkIncomingChallengeLink();
     renderDashboardNudge();
