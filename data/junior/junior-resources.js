@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   HOLIDAY HUB — Junior Secondary Study Library (Seed v1)
+   MY STUDY APP — Junior Secondary Study Library (Seed v1)
    Non-past-question study resources: Flashcards, Formula Sheets,
    Concept Notes. Works fully offline.
 ═══════════════════════════════════════════════════════════════ */

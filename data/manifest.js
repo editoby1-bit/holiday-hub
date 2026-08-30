@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   HOLIDAY HUB — Content Manifest
+   MY STUDY APP — Content Manifest
    Single source of truth for what's available offline right now.
    When new subjects/questions are added to senior-bank.js or
    junior-bank.js, update this manifest so the UI reflects it —

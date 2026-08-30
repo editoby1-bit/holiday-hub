@@ -1,6 +1,6 @@
 {
-  "name": "Holiday Hub",
-  "short_name": "HolidayHub",
+  "name": "My Study App",
+  "short_name": "My Study",
   "description": "Revision, quizzes, challenges and project help for the school break.",
   "start_url": "./?source=pwa",
   "scope": "./",

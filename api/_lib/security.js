@@ -4,7 +4,7 @@
 //
 // 1. CORS was wide open ('*') on the AI-calling endpoints, meaning any
 //    website could call them directly from a visitor's browser and burn
-//    your Anthropic credits — nothing to do with Holiday Hub usage at all.
+//    your Anthropic credits — nothing to do with My Study App usage at all.
 // 2. There was no rate limiting anywhere, so even a legitimate-looking
 //    caller (or a script hitting the endpoint directly, since the URL is
 //    public in every browser's network tab) could fire unlimited requests.

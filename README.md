@@ -1,4 +1,4 @@
-# Holiday Hub — v1
+# My Study App — v1
 
 A free, standalone holiday companion app: Revision, Quiz, Challenge a Friend, and a Holiday
 Project Helper. Built to reuse Editoby Ventures' existing infrastructure (question banks,
@@ -48,7 +48,7 @@ My Exams App / My JAMB App still use this same question bank, this bug is very l
 in both paid apps right now.** Worth checking urgently, since it affects roughly two-thirds
 of objective questions.
 
-I've fixed this in Holiday Hub's own copy of the bank only (`data/senior/senior-bank.js`) —
+I've fixed this in My Study App's own copy of the bank only (`data/senior/senior-bank.js`) —
 converted all letter answers to numeric indices and assigned stable IDs to every question that
 lacked one. I did **not** touch your original My Exams App / My JAMB App repos. If you want, I
 can prepare the same fix as a patch for those two apps' `questions.js` next.
@@ -207,7 +207,7 @@ same thing — read a question, tap an option. Fixed at the interaction level, n
   the one thing that costs anything.
 - **Same Paystack account, same verification endpoint**: reuses the live key and the shared
   `/api/verify-payment` endpoint your other apps already use — no new backend work needed for
-  this. Transaction references are prefixed `HH-AI-` so you can tell Holiday Hub payments apart
+  this. Transaction references are prefixed `HH-AI-` so you can tell My Study App payments apart
   from My Exams App / My JAMB App ones in your Paystack dashboard.
 - **Game AI top-up stays silent**: Speed Round/True-False/Sort's background AI question
   refresh (when the static pool runs low mid-game) quietly skips itself if credits are at zero
@@ -238,4 +238,4 @@ same thing — read a question, tap an option. Fixed at the interaction level, n
   project helper screen, anti-repetition tracking. Not yet tested on a real device/browser —
   worth a real click-through before pushing live.
 - **My Exams App / My JAMB App data bug**: see the section above — recommend checking whether
-  this affects the live paid apps as a priority, separate from Holiday Hub.
+  this affects the live paid apps as a priority, separate from My Study App.

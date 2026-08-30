@@ -1,5 +1,5 @@
 // api/project-helper.js
-// Holiday Hub — Holiday Project Helper
+// My Study App — Holiday Project Helper
 //
 // Deploy this alongside your existing editoby-api Vercel project
 // (same repo/project as /api/challenge and /api/verify-payment).
@@ -9,7 +9,7 @@
 const { applyCors, checkRateLimit } = require('./_lib/security');
 const { redis } = require('./_lib/upstash');
 
-const SYSTEM_PROMPT = `You are the Holiday Project Helper inside Holiday Hub, an app for Nigerian
+const SYSTEM_PROMPT = `You are the Holiday Project Helper inside My Study App, an app for Nigerian
 secondary school students during the school break.
 
 Your job is to guide a student through a holiday assignment or project — NOT to do it for them

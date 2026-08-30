@@ -18,9 +18,9 @@
 //   (starts with sk_live_... — the same account as your pk_live_ key,
 //   found in Paystack Dashboard → Settings → API Keys & Webhooks)
 //
-// FIXED (previously a live bug): Holiday Hub's ₦500 / 10 AI-credits pack
+// FIXED (previously a live bug): My Study App's ₦500 / 10 AI-credits pack
 // (AI_CREDIT_PACK_PRICE_KOBO = 50000 in js/app.js) was never added to this
-// map. Every real Holiday Hub payment was coming back "Unrecognized amount
+// map. Every real My Study App payment was coming back "Unrecognized amount
 // — contact support" even though Paystack had genuinely charged the
 // student. Added the `hh-ai-credits` entry below to fix this.
 //
@@ -45,7 +45,7 @@ const ENTITLEMENTS = {
   1050000: { tier: 'plus',    days: 365 },  // Plus yearly ₦10,500
   150000:  { tier: 'jamb',    days: 90 },   // JAMB Only quarterly ₦1,500
   100000:  { tier: 'plus',    days: 0    },  // Upgrade-to-Plus top-up ₦1,000 (keeps existing expiry — see note below)
-  50000:   { tier: 'hh-ai-credits', days: 0 }, // Holiday Hub — ₦500 / 10 AI responses (tier/days unused by the client, it just needs verified:true)
+  50000:   { tier: 'hh-ai-credits', days: 0 }, // My Study App — ₦500 / 10 AI responses (tier/days unused by the client, it just needs verified:true)
 };
 
 module.exports = async (req, res) => {

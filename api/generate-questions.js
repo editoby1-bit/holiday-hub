@@ -1,5 +1,5 @@
 // api/generate-questions.js
-// Holiday Hub — AI Question Generator
+// My Study App — AI Question Generator
 //
 // Generates fresh multiple-choice questions for a subject when the static
 // question bank is thin or a user has already seen most of it. Used by

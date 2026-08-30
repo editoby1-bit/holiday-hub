@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   HOLIDAY HUB — Service Worker
-   Gives the app real offline support. Holiday Hub is used by students
+   MY STUDY APP — Service Worker
+   Gives the app real offline support. My Study App is used by students
    on patchy/expensive mobile data, so once someone has opened the app
    once, everything except live features (Duel Mode sync, AI calls,
    payments) should keep working with zero network.
@@ -11,7 +11,7 @@
    students' phones keep serving the OLD app indefinitely.
 ═══════════════════════════════════════════════════════════════ */
 
-const CACHE_VERSION = 'hh-v2';
+const CACHE_VERSION = 'hh-v3';
 const APP_SHELL = [
   './',
   './index.html',

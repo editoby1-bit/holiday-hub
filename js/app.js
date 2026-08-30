@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   HOLIDAY HUB — App Logic v1.0
+   MY STUDY APP — App Logic v1.0
 ═══════════════════════════════════════════════════════════════ */
 
 (function () {
@@ -142,7 +142,7 @@
       currency: 'NGN',
       ref: 'HH-GP-' + Date.now(),
       metadata: { custom_fields: [
-        { display_name: 'Product', variable_name: 'product', value: 'Holiday Hub — 7-Day Games Pass' },
+        { display_name: 'Product', variable_name: 'product', value: 'My Study App — 7-Day Games Pass' },
       ]},
       onClose() {},
       callback(response) {
@@ -184,7 +184,7 @@
       currency: 'NGN',
       ref: 'HH-GT-' + Date.now(),
       metadata: { custom_fields: [
-        { display_name: 'Product', variable_name: 'product', value: `Holiday Hub — +${GAMES_TOPUP_ROUNDS} Game Rounds` },
+        { display_name: 'Product', variable_name: 'product', value: `My Study App — +${GAMES_TOPUP_ROUNDS} Game Rounds` },
       ]},
       onClose() {},
       callback(response) {
@@ -4001,9 +4001,9 @@
     if (!code) return;
     const url = window.location.origin + window.location.pathname + '?challenge=' + code;
     const subj = document.getElementById('qcSubject')?.value || '';
-    const text = `🏆 I challenge you! Take this ${SUBJECT_LABELS[subj] || subj} quiz on Holiday Hub.\n\nCode: ${code}\nLink: ${url}`;
+    const text = `🏆 I challenge you! Take this ${SUBJECT_LABELS[subj] || subj} quiz on My Study App.\n\nCode: ${code}\nLink: ${url}`;
     if (navigator.share) {
-      navigator.share({ title: 'Holiday Hub Challenge', text, url }).catch(() => {});
+      navigator.share({ title: 'My Study App Challenge', text, url }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(text).then(() => showToast('Challenge link copied!')).catch(() => showToast('Link: ' + url));
     }
@@ -4448,7 +4448,7 @@
       currency: 'NGN',
       ref: 'HH-AI-' + Date.now(),
       metadata: { custom_fields: [
-        { display_name: 'Product', variable_name: 'product', value: 'Holiday Hub — 2-Day AI Boost (10 credits)' },
+        { display_name: 'Product', variable_name: 'product', value: 'My Study App — 2-Day AI Boost (10 credits)' },
       ]},
       onClose() {},
       callback(response) {

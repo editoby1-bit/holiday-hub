@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   HOLIDAY HUB — Junior Secondary Question Bank (Seed v1)
+   MY STUDY APP — Junior Secondary Question Bank (Seed v1)
    Covers: JSS1–JSS3 core subjects
    This is a STARTER set. The app's AI-complement layer fills gaps
    beyond what's here; strong AI-generated sets get reviewed and

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   HOLIDAY HUB — Senior Secondary Question Bank (fixed copy)
+   MY STUDY APP — Senior Secondary Question Bank (fixed copy)
    Source: My Exams App question bank.
    Fixes applied on this copy only:
    - Converted letter-based answers (A/B/C/D) to numeric indices
