@@ -859,14 +859,14 @@
   }
 
   /* ────────────────────────────────
-     HOLIDAY COUNTDOWN
+     RESUMPTION COUNTDOWN
      (Nigerian schools typically resume early-to-mid September;
-      adjust HOLIDAY_END if your actual resumption date differs.)
+      adjust RESUMPTION_DATE if your actual resumption date differs.)
   ──────────────────────────────── */
   function renderCountdown() {
-    const HOLIDAY_END = new Date('2026-09-14T00:00:00');
+    const RESUMPTION_DATE = new Date('2026-09-14T00:00:00');
     const now = new Date();
-    const days = Math.max(0, Math.ceil((HOLIDAY_END - now) / 86400000));
+    const days = Math.max(0, Math.ceil((RESUMPTION_DATE - now) / 86400000));
     document.getElementById('daysLeft').textContent = days;
   }
 
@@ -1009,14 +1009,14 @@
   /* ────────────────────────────────
      STUDY PLAN
      A lightweight, locally-generated day-by-day checklist for the
-     rest of the holiday — the thing that makes this feel like a study
+     rest of the term — the thing that makes this feel like a study
      companion rather than a stack of quiz modes. Not AI-generated
      (deterministic round-robin scheduling); simple on purpose so it's
      instant and never fails.
   ──────────────────────────────── */
-  function daysLeftInHoliday() {
-    const HOLIDAY_END = new Date('2026-09-14T00:00:00');
-    return Math.max(1, Math.ceil((HOLIDAY_END - new Date()) / 86400000));
+  function daysUntilResumption() {
+    const RESUMPTION_DATE = new Date('2026-09-14T00:00:00');
+    return Math.max(1, Math.ceil((RESUMPTION_DATE - new Date()) / 86400000));
   }
 
   function getPlan(category) {
@@ -1058,7 +1058,7 @@
   function renderPlanSetup() {
     document.getElementById('planScreenTitle').textContent = '🗓 Build Your Study Plan';
     const manifest = CONTENT_MANIFEST[S.category];
-    const suggestedWeeks = Math.max(1, Math.round(daysLeftInHoliday() / 7));
+    const suggestedWeeks = Math.max(1, Math.round(daysUntilResumption() / 7));
     const body = document.getElementById('planBody');
     body.innerHTML = `
       <p style="font-size:.85rem; color:var(--text-mid); margin-bottom:1rem;">
@@ -4582,7 +4582,7 @@
   }
 
   /* ────────────────────────────────
-     HOLIDAY PROJECT HELPER
+     PROJECT & HOMEWORK HELPER
   ──────────────────────────────── */
   let phMessages = [];
   let phSubject = 'Any subject';
@@ -4616,7 +4616,7 @@
           <p>I won't do it for you — I'll ask questions, explain ideas, and guide you<br>to the answer so you understand it and can explain it yourself.</p>
         </div>` : `<div class="ph-chat" id="phChat">${phMessages.map(renderPhMsg).join('')}</div>`}
       <div class="ph-input-row">
-        <textarea id="phInput" rows="1" placeholder="Describe your holiday project or ask a question…"></textarea>
+        <textarea id="phInput" rows="1" placeholder="Describe your project, assignment, or homework question…"></textarea>
         <button class="ph-send-btn" id="phSendBtn">➤</button>
       </div>`;
 
