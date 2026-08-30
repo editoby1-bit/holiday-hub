@@ -1043,7 +1043,7 @@
       const done = plan.days.reduce((n, d) => n + d.tasks.filter(t => t.done).length, 0);
       sub.textContent = `${done}/${total} tasks done — tap to continue your plan`;
     } else {
-      sub.textContent = 'Build a simple day-by-day plan for the rest of the break.';
+      sub.textContent = 'Build a simple day-by-day plan for the rest of the term.';
     }
   }
 
