@@ -371,6 +371,7 @@
       <p class="ge-subject" id="geSubjectLine"></p>
       <ul class="ge-rules" id="geRules"></ul>
       <button class="btn btn-primary btn-block" id="geStartBtn">Start →</button>
+      <button class="btn btn-ghost btn-block" id="geMultiplayerBtn" style="margin-top:.5rem; display:none;">🔀 Play Multiplayer instead</button>
     </div>
   </div>
 
@@ -422,6 +423,14 @@
       <button class="btn btn-primary btn-block" id="gpPassBtn">Get 7-Day Games Pass →</button>
       <button class="btn btn-ghost btn-block" id="gpTopupBtn" style="margin-top:.5rem;">Or just add 15 more rounds — ₦150</button>
       <button class="btn btn-ghost btn-block" id="gpClose2" style="margin-top:.5rem;">Maybe later</button>
+    </div>
+  </div>
+
+  <!-- ════════════════ MULTIPLAYER WORD SCRAMBLE ════════════════ -->
+  <div id="wsChallengeModal" class="overlay hidden">
+    <div class="sheet">
+      <button class="sheet-close" id="wsClose">✕</button>
+      <div id="wsChallengeBody"></div>
     </div>
   </div>
 

@@ -347,6 +347,37 @@ a { color:inherit; text-decoration:none; }
   max-width: 420px;
   animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
 }
+
+/* Multiplayer Word Scramble */
+#wsChallengeModal { align-items:center; padding: 0 1.25rem; }
+#wsChallengeModal .sheet {
+  border-radius: var(--r-l);
+  max-width: 420px;
+  animation: dialog-pop .22s cubic-bezier(.2,.9,.4,1);
+}
+.ws-turn-badge {
+  text-align:center; font-size:.78rem; font-weight:700; color: var(--coral);
+  margin-bottom:.8rem; padding:.5rem; background: var(--coral-pale); border-radius: var(--r-m);
+}
+.ws-word-display {
+  text-align:center; font-family: var(--serif); font-weight:700; font-size:1.8rem;
+  letter-spacing:.15em; color: var(--ink); margin: 1rem 0; word-break: break-all;
+}
+.ws-input {
+  width:100%; padding:.8rem 1rem; font-size:1rem; text-align:center;
+  border: 1px solid var(--border-w); border-radius: var(--r-m); margin-bottom:.8rem;
+}
+.ws-timer { text-align:center; font-weight:700; font-size:1.1rem; color: var(--coral); margin-bottom:.6rem; }
+.ws-leaderboard-row {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:.6rem .8rem; border-radius: var(--r-m); background: var(--cream-w); margin-bottom:.4rem;
+}
+.ws-leaderboard-row.me { background: var(--coral-pale); font-weight:700; }
+.ws-code-display {
+  text-align:center; font-family: var(--mono, monospace); font-weight:700; font-size:1.4rem;
+  letter-spacing:.1em; color: var(--ink); background: var(--cream-w); padding:.8rem;
+  border-radius: var(--r-m); margin-bottom:.8rem;
+}
 @keyframes dialog-pop {
   from { transform: scale(.94) translateY(6px); opacity:0; }
   to   { transform: scale(1) translateY(0); opacity:1; }
