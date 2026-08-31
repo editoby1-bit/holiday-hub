@@ -795,7 +795,8 @@
     document.getElementById('geMultiplayerBtn').addEventListener('click', () => {
       document.getElementById('gameExplainerModal').classList.add('hidden');
       if (!_pendingGame) return;
-      openWordScrambleChallengeSetup(_pendingGame.subject);
+      if (_pendingGame.mode === 'sort') openCategorySortChallengeSetup();
+      else openWordScrambleChallengeSetup(_pendingGame.subject);
     });
   }
 
@@ -815,10 +816,9 @@
       subjectLine.classList.remove('hidden');
     }
     document.getElementById('geRules').innerHTML = info.rules.map(r => `<li>${r}</li>`).join('');
-    // Multiplayer is only wired up for Word Scramble right now (the
-    // prototype game for the turn-based system) — hidden for every
-    // other mode until the same pattern extends to them.
-    document.getElementById('geMultiplayerBtn').style.display = (mode === 'scramble') ? '' : 'none';
+    // Multiplayer is wired up for Word Scramble and Category Sort — hidden
+    // for every other mode until the same pattern extends to them.
+    document.getElementById('geMultiplayerBtn').style.display = (mode === 'scramble' || mode === 'sort') ? '' : 'none';
     document.getElementById('gameExplainerModal').classList.remove('hidden');
   }
 
@@ -2229,13 +2229,23 @@
      never collide with a normal single-player game in progress.
   ──────────────────────────────── */
   const WS_WORD_SECONDS = 15;
+  const WS_SORT_SECONDS = 8; // faster than typing a word — it's just a tap
   const WS_WORDS_PER_MATCH = 8;
+  const WS_SORT_ITEMS_PER_MATCH = 12;
   const WS_POLL_MS = 2500;
   let WS = null;
 
   function openWordScrambleChallengeSetup(subjectKey) {
+    openMultiplayerSetup('scramble', subjectKey);
+  }
+
+  function openCategorySortChallengeSetup() {
+    openMultiplayerSetup('categorySort', null);
+  }
+
+  function openMultiplayerSetup(contentMode, subjectKey) {
     ensureUser(() => {
-      WS = { code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, pollTimer: null, turnTimer: null, secsLeft: 0, wordIdx: 0, answers: [], words: [] };
+      WS = { code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, contentMode, pollTimer: null, turnTimer: null, secsLeft: 0, itemIdx: 0, answers: [], words: [], items: [], bucketSubjects: [] };
       renderWSSetup();
       document.getElementById('wsChallengeModal').classList.remove('hidden');
     });
@@ -2254,11 +2264,16 @@
   }
 
   function renderWSSetup() {
+    const isSort = WS.contentMode === 'categorySort';
     const meta = WS.subjectKey ? subjectMeta(WS.subjectKey) : null;
-    const subjectLabel = WS.subjectKey ? `${meta.icon} ${SUBJECT_LABELS[WS.subjectKey] || WS.subjectKey}` : 'Mixed subjects';
+    const subjectLabel = isSort ? 'Mixed subjects' : (WS.subjectKey ? `${meta.icon} ${SUBJECT_LABELS[WS.subjectKey] || WS.subjectKey}` : 'Mixed subjects');
+    const title = isSort ? '🔀 Multiplayer Category Sort' : '🔀 Multiplayer Word Scramble';
+    const sub = isSort
+      ? `${subjectLabel} — same terms for everyone, ${WS_SORT_SECONDS}s per term.`
+      : `${subjectLabel} — same words for everyone, ${WS_WORD_SECONDS}s per turn.`;
     document.getElementById('wsChallengeBody').innerHTML = `
-      <h3 class="sheet-title" style="text-align:center;">🔀 Multiplayer Word Scramble</h3>
-      <p class="sheet-sub" style="text-align:center;">${subjectLabel} — same words for everyone, ${WS_WORD_SECONDS}s per turn.</p>
+      <h3 class="sheet-title" style="text-align:center;">${title}</h3>
+      <p class="sheet-sub" style="text-align:center;">${sub}</p>
       <button class="btn btn-primary btn-block" id="wsCreateBtn">Create a match →</button>
       <div style="margin:1rem 0; text-align:center; font-size:.78rem; color:var(--text-dim);">or join one</div>
       <input class="ws-input" id="wsJoinCodeInput" placeholder="Enter match code" style="text-transform:uppercase;">
@@ -2273,30 +2288,42 @@
   }
 
   async function createWSChallenge() {
-    const pool = WS.subjectKey ? scrambleWordsFor(S.category, WS.subjectKey) : scrambleWordsMixed(S.category);
-    if (pool.length < 4) {
-      showToast('Not enough Study Library words yet for a multiplayer match on this subject.');
-      return;
-    }
-    const words = shuffleArray(pool).slice(0, WS_WORDS_PER_MATCH).map(c => c.term.toUpperCase());
+    const isSort = WS.contentMode === 'categorySort';
     const code = generateChallengeCode();
+    let payload;
+
+    if (isSort) {
+      const { bucketSubjects, items: fullItems } = buildCategorySortRound();
+      if (bucketSubjects.length < 2 || fullItems.length < 6) {
+        showToast('Not enough Study Library content yet across subjects for multiplayer Category Sort.');
+        return;
+      }
+      const items = shuffleArray(fullItems).slice(0, WS_SORT_ITEMS_PER_MATCH).map(it => ({ term: it.term, subject: it.subject }));
+      WS.bucketSubjects = bucketSubjects;
+      WS.items = items;
+      payload = { action: 'create', code, mode: 'categorySort', items, bucketSubjects, creator: WS.myName, syncMode: 'ready' };
+    } else {
+      const pool = WS.subjectKey ? scrambleWordsFor(S.category, WS.subjectKey) : scrambleWordsMixed(S.category);
+      if (pool.length < 4) {
+        showToast('Not enough Study Library words yet for a multiplayer match on this subject.');
+        return;
+      }
+      const words = shuffleArray(pool).slice(0, WS_WORDS_PER_MATCH).map(c => c.term.toUpperCase());
+      WS.words = words;
+      payload = { action: 'create', code, mode: 'scramble', words, creator: WS.myName, subject: WS.subjectKey, syncMode: 'ready' };
+    }
+
     document.getElementById('wsChallengeBody').innerHTML = `<div class="lib-empty">Creating match…</div>`;
     try {
       const res = await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // syncMode 'ready' isn't used for its original "everyone marks
-        // ready then starts simultaneously" purpose here — it's reused
-        // purely so the backend actually populates `participants` on
-        // join, which 'anytime' mode skips. Turn order + force_start
-        // handle the real start-timing for scramble matches.
-        body: JSON.stringify({ action: 'create', code, mode: 'scramble', words, creator: WS.myName, subject: WS.subjectKey, syncMode: 'ready' }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) { showToast('Could not create the match — please try again.'); renderWSSetup(); return; }
       WS.code = code;
       WS.hostSecret = data.hostSecret;
       WS.isHost = true;
-      WS.words = words;
       showToast('Match created — share the code!', 2500);
       renderWSWaitingRoom({ participants: { [WS.myName]: true }, turnOrder: [WS.myName] });
       WS.pollTimer = setInterval(pollWSWaitingRoom, WS_POLL_MS);
@@ -2319,14 +2346,21 @@
         renderWSSetup();
         return;
       }
-      if (data.challenge.contentMode !== 'scramble') {
-        showToast('That code is for a regular quiz challenge, not Word Scramble.');
+      if (data.challenge.contentMode !== WS.contentMode) {
+        showToast(WS.contentMode === 'categorySort'
+          ? 'That code is for a different kind of challenge, not Category Sort.'
+          : 'That code is for a different kind of challenge, not Word Scramble.');
         renderWSSetup();
         return;
       }
       WS.code = code;
       WS.isHost = false;
-      WS.words = data.challenge.words || [];
+      if (WS.contentMode === 'categorySort') {
+        WS.items = data.challenge.items || [];
+        WS.bucketSubjects = data.challenge.bucketSubjects || [];
+      } else {
+        WS.words = data.challenge.words || [];
+      }
       if (data.challenge.startedAt) {
         // Rare edge case — joined right as the host started. Just fall
         // straight into normal turn-polling instead of a waiting room
@@ -2439,19 +2473,28 @@
   }
 
   function startMyWSTurn() {
-    WS.wordIdx = 0;
+    WS.itemIdx = 0;
     WS.answers = [];
-    playNextWSWord();
+    playNextWSItem();
+  }
+
+  function playNextWSItem() {
+    if (WS.contentMode === 'categorySort') {
+      if (WS.itemIdx >= WS.items.length) { finishMyWSTurn(); return; }
+      playNextWSSortItem();
+    } else {
+      if (WS.itemIdx >= WS.words.length) { finishMyWSTurn(); return; }
+      playNextWSWord();
+    }
   }
 
   function playNextWSWord() {
-    if (WS.wordIdx >= WS.words.length) { finishMyWSTurn(); return; }
-    const word = WS.words[WS.wordIdx];
+    const word = WS.words[WS.itemIdx];
     const scrambled = scrambleLetters(word).join('');
     WS.secsLeft = WS_WORD_SECONDS;
 
     document.getElementById('wsChallengeBody').innerHTML = `
-      <div class="ws-turn-badge">✨ Your turn! Word ${WS.wordIdx + 1} of ${WS.words.length}</div>
+      <div class="ws-turn-badge">✨ Your turn! Word ${WS.itemIdx + 1} of ${WS.words.length}</div>
       <div class="ws-timer" id="wsTimerDisplay">${WS.secsLeft}s</div>
       <div class="ws-word-display">${scrambled}</div>
       <input class="ws-input" id="wsWordInput" placeholder="Type the unscrambled word" autocomplete="off" autocapitalize="characters">
@@ -2462,8 +2505,8 @@
     const submit = () => {
       clearInterval(WS.turnTimer);
       WS.answers.push(input.value.trim());
-      WS.wordIdx++;
-      playNextWSWord();
+      WS.itemIdx++;
+      playNextWSItem();
     };
     document.getElementById('wsSubmitWordBtn').addEventListener('click', submit);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
@@ -2473,7 +2516,49 @@
       WS.secsLeft--;
       const timerEl = document.getElementById('wsTimerDisplay');
       if (timerEl) timerEl.textContent = WS.secsLeft + 's';
-      if (WS.secsLeft <= 0) { clearInterval(WS.turnTimer); WS.answers.push(input.value.trim()); WS.wordIdx++; playNextWSWord(); }
+      if (WS.secsLeft <= 0) { clearInterval(WS.turnTimer); WS.answers.push(input.value.trim()); WS.itemIdx++; playNextWSItem(); }
+    }, 1000);
+  }
+
+  function playNextWSSortItem() {
+    const item = WS.items[WS.itemIdx];
+    WS.secsLeft = WS_SORT_SECONDS;
+    let answered = false;
+
+    document.getElementById('wsChallengeBody').innerHTML = `
+      <div class="ws-turn-badge">✨ Your turn! Term ${WS.itemIdx + 1} of ${WS.items.length}</div>
+      <div class="ws-timer" id="wsTimerDisplay">${WS.secsLeft}s</div>
+      <div class="ws-word-display">${safe(item.term)}</div>
+      <div class="sort-buckets" id="wsSortBuckets">
+        ${WS.bucketSubjects.map(s => {
+          const meta = subjectMeta(s);
+          return `<button class="sort-bucket" data-subject="${s}" style="border-color:${meta.color}55;">
+            <span class="sort-bucket-icon">${meta.icon}</span>
+            <span class="sort-bucket-label">${SUBJECT_LABELS[s] || s}</span>
+          </button>`;
+        }).join('')}
+      </div>
+    `;
+
+    const advance = (guess) => {
+      if (answered) return;
+      answered = true;
+      clearInterval(WS.turnTimer);
+      WS.answers.push(guess);
+      WS.itemIdx++;
+      playNextWSItem();
+    };
+
+    document.querySelectorAll('#wsSortBuckets .sort-bucket').forEach(btn => {
+      btn.addEventListener('click', () => advance(btn.dataset.subject));
+    });
+
+    clearInterval(WS.turnTimer);
+    WS.turnTimer = setInterval(() => {
+      WS.secsLeft--;
+      const timerEl = document.getElementById('wsTimerDisplay');
+      if (timerEl) timerEl.textContent = WS.secsLeft + 's';
+      if (WS.secsLeft <= 0) { advance(''); } // no answer in time = counted wrong, same as a blank scramble submit
     }, 1000);
   }
 
