@@ -2338,7 +2338,7 @@
     try {
       const res = await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'join', code, name: WS.myName }),
+        body: JSON.stringify({ action: 'join', code, student: WS.myName }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok || !data.challenge) {
