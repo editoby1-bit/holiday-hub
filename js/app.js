@@ -896,12 +896,14 @@
       });
     });
     document.querySelectorAll('.game-choice-card').forEach(card => {
+      if (card.id === 'lastManStandingBtn') return; // wired separately below
       card.addEventListener('click', () => {
         const game = card.dataset.game;
         if (game === 'sort' || game === 'sequence' || game === 'equation') showGameExplainer(game, null);
         else openSubjectPicker(game);
       });
     });
+    document.getElementById('lastManStandingBtn').addEventListener('click', openLastManStandingPicker);
   }
 
   function handleFeature(action) {
@@ -2228,11 +2230,12 @@
      State lives entirely in WS below, kept separate from G/S so it can
      never collide with a normal single-player game in progress.
   ──────────────────────────────── */
-  const WS_WORD_SECONDS = 15;
-  const WS_SORT_SECONDS = 8; // faster than typing a word — it's just a tap
+  const WS_WORD_SECONDS_PRESETS = { quick: 10, standard: 15, marathon: 25 };
+  const WS_SORT_SECONDS_PRESETS = { quick: 5, standard: 8, marathon: 15 };
   const WS_WORDS_PER_MATCH = 8;
   const WS_SORT_ITEMS_PER_MATCH = 12;
   const WS_POLL_MS = 2500;
+  const WS_RESCUE_GRACE_MS = 5000; // matches the server's own grace window
   let WS = null;
 
   function openWordScrambleChallengeSetup(subjectKey) {
@@ -2243,9 +2246,36 @@
     openMultiplayerSetup('categorySort', null);
   }
 
-  function openMultiplayerSetup(contentMode, subjectKey) {
+  // Standalone "Last Man Standing" category — shows only the games that
+  // currently have real multiplayer built (Category Sort, Word Scramble).
+  // As more games gain multiplayer (see the roadmap notes), they add a
+  // tile here rather than needing their own separate elimination-mode UI.
+  function openLastManStandingPicker() {
     ensureUser(() => {
-      WS = { code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, contentMode, pollTimer: null, turnTimer: null, secsLeft: 0, itemIdx: 0, answers: [], words: [], items: [], bucketSubjects: [] };
+      document.getElementById('wsChallengeBody').innerHTML = `
+        <h3 class="sheet-title" style="text-align:center;">⚔️ Last Man Standing</h3>
+        <p class="sheet-sub" style="text-align:center;">Pick a game — answer wrong or miss the clock and you're out. Last player standing wins.</p>
+        <button class="btn btn-primary btn-block" id="lmsPickSort" style="margin-top:1rem;">🗂 Category Sort</button>
+        <button class="btn btn-primary btn-block" id="lmsPickScramble" style="margin-top:.6rem;">🔤 Word Scramble</button>
+        <p class="sheet-sub" style="text-align:center; font-size:.72rem; margin-top:1rem;">More games are joining Last Man Standing soon.</p>
+      `;
+      document.getElementById('wsChallengeModal').classList.remove('hidden');
+      document.getElementById('lmsPickSort').addEventListener('click', () => openMultiplayerSetup('categorySort', null, true));
+      document.getElementById('lmsPickScramble').addEventListener('click', () => openMultiplayerSetup('scramble', null, true));
+    });
+  }
+
+  function openMultiplayerSetup(contentMode, subjectKey, eliminationMode) {
+    ensureUser(() => {
+      WS = {
+        code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, contentMode,
+        pollTimer: null, itemTimer: null, secsLeft: 0,
+        itemSeconds: (contentMode === 'categorySort' ? WS_SORT_SECONDS_PRESETS.standard : WS_WORD_SECONDS_PRESETS.standard),
+        words: [], items: [], bucketSubjects: [],
+        turnOrder: [], scores: {}, itemIndex: 0, totalItems: 0, turnStartedAt: null,
+        answeredThisTurn: false,
+        eliminationMode: !!eliminationMode, eliminated: {},
+      };
       renderWSSetup();
       document.getElementById('wsChallengeModal').classList.remove('hidden');
     });
@@ -2253,7 +2283,7 @@
 
   function closeWSModal() {
     if (WS && WS.pollTimer) clearInterval(WS.pollTimer);
-    if (WS && WS.turnTimer) clearInterval(WS.turnTimer);
+    if (WS && WS.itemTimer) clearInterval(WS.itemTimer);
     document.getElementById('wsChallengeModal').classList.add('hidden');
   }
 
@@ -2265,21 +2295,40 @@
 
   function renderWSSetup() {
     const isSort = WS.contentMode === 'categorySort';
+    const presets = isSort ? WS_SORT_SECONDS_PRESETS : WS_WORD_SECONDS_PRESETS;
     const meta = WS.subjectKey ? subjectMeta(WS.subjectKey) : null;
     const subjectLabel = isSort ? 'Mixed subjects' : (WS.subjectKey ? `${meta.icon} ${SUBJECT_LABELS[WS.subjectKey] || WS.subjectKey}` : 'Mixed subjects');
-    const title = isSort ? '🔀 Multiplayer Category Sort' : '🔀 Multiplayer Word Scramble';
-    const sub = isSort
-      ? `${subjectLabel} — same terms for everyone, ${WS_SORT_SECONDS}s per term.`
-      : `${subjectLabel} — same words for everyone, ${WS_WORD_SECONDS}s per turn.`;
+    const gameLabel = isSort ? 'Category Sort' : 'Word Scramble';
+    const title = WS.eliminationMode ? `⚔️ Last Man Standing — ${gameLabel}` : `🔀 Multiplayer ${gameLabel}`;
+    const subtitle = WS.eliminationMode
+      ? `${subjectLabel} — answer wrong or miss the clock and you're out. Last player standing wins.`
+      : `${subjectLabel} — turns rotate one item at a time.`;
     document.getElementById('wsChallengeBody').innerHTML = `
       <h3 class="sheet-title" style="text-align:center;">${title}</h3>
-      <p class="sheet-sub" style="text-align:center;">${sub}</p>
-      <button class="btn btn-primary btn-block" id="wsCreateBtn">Create a match →</button>
+      <p class="sheet-sub" style="text-align:center;">${subtitle}</p>
+      <p class="sheet-sub" style="text-align:center; font-weight:700; margin-top:.8rem;">Seconds per turn</p>
+      <div class="ws-preset-row" style="display:flex; gap:.5rem; margin-bottom:.6rem;">
+        <button class="btn btn-ghost ws-preset-btn" data-secs="${presets.quick}" style="flex:1;">Quick (${presets.quick}s)</button>
+        <button class="btn btn-ghost ws-preset-btn" data-secs="${presets.standard}" style="flex:1;">Standard (${presets.standard}s)</button>
+        <button class="btn btn-ghost ws-preset-btn" data-secs="${presets.marathon}" style="flex:1;">Marathon (${presets.marathon}s)</button>
+      </div>
+      <input type="number" class="ws-input" id="wsCustomSecs" min="3" max="60" placeholder="Or type a custom number of seconds (3–60)" value="${WS.itemSeconds}">
+      <button class="btn btn-primary btn-block" id="wsCreateBtn" style="margin-top:.8rem;">Create a match →</button>
       <div style="margin:1rem 0; text-align:center; font-size:.78rem; color:var(--text-dim);">or join one</div>
       <input class="ws-input" id="wsJoinCodeInput" placeholder="Enter match code" style="text-transform:uppercase;">
       <button class="btn btn-ghost btn-block" id="wsJoinBtn">Join match</button>
     `;
-    document.getElementById('wsCreateBtn').addEventListener('click', createWSChallenge);
+    document.querySelectorAll('.ws-preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        WS.itemSeconds = Number(btn.dataset.secs);
+        document.getElementById('wsCustomSecs').value = WS.itemSeconds;
+      });
+    });
+    document.getElementById('wsCreateBtn').addEventListener('click', () => {
+      const custom = Number(document.getElementById('wsCustomSecs').value);
+      if (Number.isFinite(custom) && custom >= 3 && custom <= 60) WS.itemSeconds = Math.round(custom);
+      createWSChallenge();
+    });
     document.getElementById('wsJoinBtn').addEventListener('click', () => {
       const code = document.getElementById('wsJoinCodeInput').value.trim().toUpperCase();
       if (!code) { showToast('Enter a match code first.'); return; }
@@ -2301,7 +2350,7 @@
       const items = shuffleArray(fullItems).slice(0, WS_SORT_ITEMS_PER_MATCH).map(it => ({ term: it.term, subject: it.subject }));
       WS.bucketSubjects = bucketSubjects;
       WS.items = items;
-      payload = { action: 'create', code, mode: 'categorySort', items, bucketSubjects, creator: WS.myName, syncMode: 'ready' };
+      payload = { action: 'create', code, mode: 'categorySort', items, bucketSubjects, creator: WS.myName, syncMode: 'ready', itemSeconds: WS.itemSeconds, eliminationMode: WS.eliminationMode };
     } else {
       const pool = WS.subjectKey ? scrambleWordsFor(S.category, WS.subjectKey) : scrambleWordsMixed(S.category);
       if (pool.length < 4) {
@@ -2310,7 +2359,7 @@
       }
       const words = shuffleArray(pool).slice(0, WS_WORDS_PER_MATCH).map(c => c.term.toUpperCase());
       WS.words = words;
-      payload = { action: 'create', code, mode: 'scramble', words, creator: WS.myName, subject: WS.subjectKey, syncMode: 'ready' };
+      payload = { action: 'create', code, mode: 'scramble', words, creator: WS.myName, subject: WS.subjectKey, syncMode: 'ready', itemSeconds: WS.itemSeconds, eliminationMode: WS.eliminationMode };
     }
 
     document.getElementById('wsChallengeBody').innerHTML = `<div class="lib-empty">Creating match…</div>`;
@@ -2324,8 +2373,9 @@
       WS.code = code;
       WS.hostSecret = data.hostSecret;
       WS.isHost = true;
+      WS.turnOrder = [WS.myName];
       showToast('Match created — share the code!', 2500);
-      renderWSWaitingRoom({ participants: { [WS.myName]: true }, turnOrder: [WS.myName] });
+      renderWSWaitingRoom({ participants: { [WS.myName]: true } });
       WS.pollTimer = setInterval(pollWSWaitingRoom, WS_POLL_MS);
     } catch (err) {
       showToast('Could not create the match — check your connection.');
@@ -2355,6 +2405,8 @@
       }
       WS.code = code;
       WS.isHost = false;
+      WS.itemSeconds = data.challenge.itemSeconds || WS.itemSeconds;
+      WS.eliminationMode = !!data.challenge.eliminationMode;
       if (WS.contentMode === 'categorySort') {
         WS.items = data.challenge.items || [];
         WS.bucketSubjects = data.challenge.bucketSubjects || [];
@@ -2363,8 +2415,8 @@
       }
       if (data.challenge.startedAt) {
         // Rare edge case — joined right as the host started. Just fall
-        // straight into normal turn-polling instead of a waiting room
-        // that would never actually be needed.
+        // straight into normal polling instead of a waiting room that
+        // would never actually be needed.
         startWSPolling();
       } else {
         renderWSWaitingRoom(data.challenge);
@@ -2378,8 +2430,9 @@
 
   function renderWSWaitingRoom(challenge) {
     const names = Object.keys(challenge.participants || {});
+    const waitingTitle = WS.eliminationMode ? '⚔️ Waiting Room' : '🔀 Waiting Room';
     document.getElementById('wsChallengeBody').innerHTML = `
-      <h3 class="sheet-title" style="text-align:center;">🔀 Waiting Room</h3>
+      <h3 class="sheet-title" style="text-align:center;">${waitingTitle}</h3>
       <div class="ws-code-display">${WS.code}</div>
       <p class="sheet-sub" style="text-align:center;">Share this code — players who join before the match starts get a turn.</p>
       <p class="sheet-sub" style="text-align:center; font-weight:700;">Joined (${names.length}): ${names.join(', ')}</p>
@@ -2390,6 +2443,10 @@
     if (WS.isHost) {
       document.getElementById('wsStartMatchBtn').addEventListener('click', () => {
         if (names.length < 2) {
+          if (WS.eliminationMode) {
+            showToast('Last Man Standing needs at least one opponent — share the code first.', 3200);
+            return;
+          }
           if (!confirm('Only you have joined so far — start anyway?')) return;
         }
         startWSMatch();
@@ -2432,9 +2489,36 @@
   }
 
   function startWSPolling() {
-    renderWSWaiting(null);
     pollWSStatus();
     WS.pollTimer = setInterval(pollWSStatus, WS_POLL_MS);
+  }
+
+  // A small horizontal strip of every player, highlighting whoever's turn
+  // it is right now, with each player's live correct/answered tally right
+  // underneath — this is the "who's up, who's ahead" view everyone sees
+  // between their own turns, not just a static waiting message. Eliminated
+  // players (Last Man Standing only) show grayed out with a ❌ instead of
+  // ever being highlighted as active again.
+  function renderWSTurnStrip(turnOrder, currentTurn, scores, eliminated) {
+    eliminated = eliminated || {};
+    return `
+      <div class="ws-turn-strip" style="display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; margin:1rem 0;">
+        ${turnOrder.map(name => {
+          const isOut = !!eliminated[name];
+          const isActive = !isOut && name === currentTurn;
+          const s = scores[name] || { correct: 0, answered: 0 };
+          return `
+            <div style="text-align:center; padding:.5rem .8rem; border-radius:var(--r-m); opacity:${isOut ? '.5' : '1'};
+                        background:${isActive ? 'var(--coral)' : 'var(--cream-w)'};
+                        color:${isActive ? 'var(--white)' : 'var(--text)'};
+                        border:1px solid ${isActive ? 'var(--coral)' : 'var(--border)'};
+                        min-width:72px;">
+              <div style="font-weight:700; font-size:.85rem;">${isOut ? '❌ ' : isActive ? '▶ ' : ''}${safe(name)}</div>
+              <div style="font-size:.72rem; opacity:.85;">${s.correct}/${s.answered}</div>
+            </div>`;
+        }).join('')}
+      </div>
+    `;
   }
 
   async function pollWSStatus() {
@@ -2446,55 +2530,71 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) return; // transient network hiccup — next poll tries again
+
+      WS.turnOrder = data.turnOrder || WS.turnOrder;
+      WS.scores = data.scores || WS.scores;
+      WS.itemIndex = data.itemIndex || 0;
+      WS.totalItems = data.totalItems || WS.totalItems;
+      WS.turnStartedAt = data.turnStartedAt;
+      WS.eliminated = data.eliminated || WS.eliminated;
+
       if (data.ended) {
         clearInterval(WS.pollTimer); WS.pollTimer = null;
-        renderWSResults(data.scores || {});
+        renderWSResults(data.scores || {}, WS.eliminated);
         return;
       }
+
       if (data.currentTurn === WS.myName) {
         clearInterval(WS.pollTimer); WS.pollTimer = null;
-        startMyWSTurn();
+        startMyWSItem();
         return;
       }
-      renderWSWaiting(data);
+
+      // Self-healing: if whoever's turn it is has gone quiet well past
+      // their time limit (device closed, connection dropped), any other
+      // polling device — including this one — nudges the match forward
+      // with a forced-blank answer on their behalf, so one missing player
+      // can't freeze the game for everyone else.
+      const elapsed = data.turnStartedAt ? Date.now() - data.turnStartedAt : 0;
+      const overdue = elapsed > (WS.itemSeconds * 1000 + WS_RESCUE_GRACE_MS + 1500);
+      if (overdue && data.currentTurn) {
+        submitWSItemAnswer(data.currentTurn, '', true);
+        return;
+      }
+
+      renderWSWaitingFor(data);
     } catch (err) { /* transient — next poll tries again */ }
   }
 
-  function renderWSWaiting(status) {
-    const waitingFor = status && status.currentTurn ? status.currentTurn : 'the first player';
-    const names = status && status.turnOrder ? status.turnOrder.join(', ') : WS.myName;
+  function renderWSWaitingFor(status) {
+    const turnOrder = status.turnOrder || WS.turnOrder;
+    const currentTurn = status.currentTurn;
+    const iAmOut = WS.eliminationMode && !!(WS.eliminated || {})[WS.myName];
     document.getElementById('wsChallengeBody').innerHTML = `
-      <h3 class="sheet-title" style="text-align:center;">🔀 Match Code</h3>
-      <div class="ws-code-display">${WS.code}</div>
-      <div class="ws-turn-badge">⏳ Waiting for ${waitingFor}'s turn…</div>
-      <p class="sheet-sub" style="text-align:center;">Players so far: ${names}</p>
+      <h3 class="sheet-title" style="text-align:center;">${WS.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Live Scoreboard'}</h3>
+      ${renderWSTurnStrip(turnOrder, currentTurn, status.scores || {}, WS.eliminated)}
+      ${iAmOut
+        ? `<div class="ws-turn-badge">👀 You're out — watching the rest of the match play out.</div>`
+        : `<div class="ws-turn-badge">⏳ Waiting for ${safe(currentTurn || 'the next player')}'s turn…</div>`}
       <p class="sheet-sub" style="text-align:center; font-size:.72rem;">This updates automatically — no need to refresh.</p>
     `;
   }
 
-  function startMyWSTurn() {
-    WS.itemIdx = 0;
-    WS.answers = [];
-    playNextWSItem();
+  function startMyWSItem() {
+    WS.answeredThisTurn = false;
+    if (WS.contentMode === 'categorySort') playMyWSSortItem();
+    else playMyWSWordItem();
   }
 
-  function playNextWSItem() {
-    if (WS.contentMode === 'categorySort') {
-      if (WS.itemIdx >= WS.items.length) { finishMyWSTurn(); return; }
-      playNextWSSortItem();
-    } else {
-      if (WS.itemIdx >= WS.words.length) { finishMyWSTurn(); return; }
-      playNextWSWord();
-    }
-  }
-
-  function playNextWSWord() {
-    const word = WS.words[WS.itemIdx];
+  function playMyWSWordItem() {
+    const word = WS.words[WS.itemIndex];
+    if (!word) { startWSPolling(); return; } // defensive — shouldn't happen if ended was handled
     const scrambled = scrambleLetters(word).join('');
-    WS.secsLeft = WS_WORD_SECONDS;
+    WS.secsLeft = WS.itemSeconds;
 
     document.getElementById('wsChallengeBody').innerHTML = `
-      <div class="ws-turn-badge">✨ Your turn! Word ${WS.itemIdx + 1} of ${WS.words.length}</div>
+      ${renderWSTurnStrip(WS.turnOrder, WS.myName, WS.scores, WS.eliminated)}
+      <div class="ws-turn-badge">✨ Your turn! Word ${WS.itemIndex + 1} of ${WS.totalItems}</div>
       <div class="ws-timer" id="wsTimerDisplay">${WS.secsLeft}s</div>
       <div class="ws-word-display">${scrambled}</div>
       <input class="ws-input" id="wsWordInput" placeholder="Type the unscrambled word" autocomplete="off" autocapitalize="characters">
@@ -2503,30 +2603,31 @@
     const input = document.getElementById('wsWordInput');
     input.focus();
     const submit = () => {
-      clearInterval(WS.turnTimer);
-      WS.answers.push(input.value.trim());
-      WS.itemIdx++;
-      playNextWSItem();
+      if (WS.answeredThisTurn) return;
+      WS.answeredThisTurn = true;
+      clearInterval(WS.itemTimer);
+      submitWSItemAnswer(WS.myName, input.value.trim(), false);
     };
     document.getElementById('wsSubmitWordBtn').addEventListener('click', submit);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
 
-    clearInterval(WS.turnTimer);
-    WS.turnTimer = setInterval(() => {
+    clearInterval(WS.itemTimer);
+    WS.itemTimer = setInterval(() => {
       WS.secsLeft--;
       const timerEl = document.getElementById('wsTimerDisplay');
       if (timerEl) timerEl.textContent = WS.secsLeft + 's';
-      if (WS.secsLeft <= 0) { clearInterval(WS.turnTimer); WS.answers.push(input.value.trim()); WS.itemIdx++; playNextWSItem(); }
+      if (WS.secsLeft <= 0) { clearInterval(WS.itemTimer); submit(); }
     }, 1000);
   }
 
-  function playNextWSSortItem() {
-    const item = WS.items[WS.itemIdx];
-    WS.secsLeft = WS_SORT_SECONDS;
-    let answered = false;
+  function playMyWSSortItem() {
+    const item = WS.items[WS.itemIndex];
+    if (!item) { startWSPolling(); return; }
+    WS.secsLeft = WS.itemSeconds;
 
     document.getElementById('wsChallengeBody').innerHTML = `
-      <div class="ws-turn-badge">✨ Your turn! Term ${WS.itemIdx + 1} of ${WS.items.length}</div>
+      ${renderWSTurnStrip(WS.turnOrder, WS.myName, WS.scores, WS.eliminated)}
+      <div class="ws-turn-badge">✨ Your turn! Term ${WS.itemIndex + 1} of ${WS.totalItems}</div>
       <div class="ws-timer" id="wsTimerDisplay">${WS.secsLeft}s</div>
       <div class="ws-word-display">${safe(item.term)}</div>
       <div class="sort-buckets" id="wsSortBuckets">
@@ -2540,59 +2641,86 @@
       </div>
     `;
 
-    const advance = (guess) => {
-      if (answered) return;
-      answered = true;
-      clearInterval(WS.turnTimer);
-      WS.answers.push(guess);
-      WS.itemIdx++;
-      playNextWSItem();
+    const submit = (guess) => {
+      if (WS.answeredThisTurn) return;
+      WS.answeredThisTurn = true;
+      clearInterval(WS.itemTimer);
+      submitWSItemAnswer(WS.myName, guess, false);
     };
 
     document.querySelectorAll('#wsSortBuckets .sort-bucket').forEach(btn => {
-      btn.addEventListener('click', () => advance(btn.dataset.subject));
+      btn.addEventListener('click', () => submit(btn.dataset.subject));
     });
 
-    clearInterval(WS.turnTimer);
-    WS.turnTimer = setInterval(() => {
+    clearInterval(WS.itemTimer);
+    WS.itemTimer = setInterval(() => {
       WS.secsLeft--;
       const timerEl = document.getElementById('wsTimerDisplay');
       if (timerEl) timerEl.textContent = WS.secsLeft + 's';
-      if (WS.secsLeft <= 0) { advance(''); } // no answer in time = counted wrong, same as a blank scramble submit
+      if (WS.secsLeft <= 0) { clearInterval(WS.itemTimer); submit(''); }
     }, 1000);
   }
 
-  async function finishMyWSTurn() {
-    document.getElementById('wsChallengeBody').innerHTML = `<div class="lib-empty">Submitting your turn…</div>`;
+  // `student` names whose turn is being resolved. Normally that's WS.myName
+  // answering their own turn. `isRescue` marks the self-healing path in
+  // pollWSStatus — nudging a stalled OTHER player's turn forward with a
+  // forced-blank answer, never a real guess on their behalf (the server
+  // enforces this too, independently).
+  async function submitWSItemAnswer(student, answer, isRescue) {
+    if (!isRescue) {
+      document.getElementById('wsChallengeBody').innerHTML = `<div class="lib-empty">Submitting…</div>`;
+    }
     try {
       const res = await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit_turn', code: WS.code, student: WS.myName, answers: WS.answers }),
+        body: JSON.stringify({ action: 'submit_item_answer', code: WS.code, student, answer }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        showToast('Could not submit your turn — please try again.', 3500);
-        renderWSWaiting(null);
+        if (!isRescue) { showToast('Could not submit — please try again.', 3000); renderWSWaitingFor({ turnOrder: WS.turnOrder, currentTurn: student, scores: WS.scores }); }
         return;
       }
-      showToast(`You got ${data.score}/${data.total}!`, 2800);
-      if (data.ended) { renderWSResults(data.scores || {}); return; }
+      WS.eliminated = data.eliminatedMap || WS.eliminated;
+      if (!isRescue) {
+        if (WS.eliminationMode) {
+          showToast(data.correct ? '✅ Correct — you\'re still in!' : '💀 Wrong — you\'ve been eliminated.', 2200);
+        } else {
+          showToast(data.correct ? '✅ Correct!' : '❌ Not quite.', 1600);
+        }
+      }
+      if (data.ended) { renderWSResults(data.scores || {}, WS.eliminated, data.survivor); return; }
       startWSPolling();
     } catch (err) {
-      showToast('Could not submit your turn — check your connection.', 3500);
+      if (!isRescue) showToast('Could not submit — check your connection.', 3000);
     }
   }
 
-  function renderWSResults(scores) {
-    const rows = Object.entries(scores).sort((a, b) => b[1].score - a[1].score);
+  function renderWSResults(scores, eliminated, survivor) {
+    eliminated = eliminated || {};
+    const isElimination = WS.eliminationMode;
+    // Last Man Standing crowns whoever survived, not whoever has the
+    // highest raw correct count — surviving longer matters more than a
+    // score built on more turns taken, which naturally varies by how many
+    // turns each player got before someone else was eliminated first.
+    const rows = Object.entries(scores).sort((a, b) => {
+      if (isElimination) {
+        const aOut = !!eliminated[a[0]], bOut = !!eliminated[b[0]];
+        if (aOut !== bOut) return aOut ? 1 : -1; // survivor(s) float to the top
+      }
+      return b[1].correct - a[1].correct;
+    });
     document.getElementById('wsChallengeBody').innerHTML = `
-      <h3 class="sheet-title" style="text-align:center;">🏆 Match Results</h3>
-      ${rows.map(([name, s], i) => `
-        <div class="ws-leaderboard-row ${name === WS.myName ? 'me' : ''}">
-          <span>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.'} ${name}</span>
-          <span>${s.score}/${s.total}</span>
-        </div>
-      `).join('')}
+      <h3 class="sheet-title" style="text-align:center;">${isElimination ? '⚔️ Last Man Standing' : '🏆 Match Results'}</h3>
+      ${isElimination && survivor ? `<p class="sheet-sub" style="text-align:center; font-weight:700;">🏆 ${safe(survivor)} wins!</p>` : ''}
+      ${rows.map(([name, s], i) => {
+        const isOut = isElimination && !!eliminated[name];
+        const medal = isElimination ? (isOut ? '❌' : '🏆') : (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.');
+        return `
+        <div class="ws-leaderboard-row ${name === WS.myName ? 'me' : ''}" style="${isOut ? 'opacity:.6;' : ''}">
+          <span>${medal} ${safe(name)}</span>
+          <span>${s.correct}/${s.answered}</span>
+        </div>`;
+      }).join('')}
       <button class="btn btn-primary btn-block" id="wsDoneBtn" style="margin-top:1rem;">Done</button>
     `;
     document.getElementById('wsDoneBtn').addEventListener('click', closeWSModal);
