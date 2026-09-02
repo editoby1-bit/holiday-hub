@@ -2284,6 +2284,7 @@
   function closeWSModal() {
     if (WS && WS.pollTimer) clearInterval(WS.pollTimer);
     if (WS && WS.itemTimer) clearInterval(WS.itemTimer);
+    if (WS && WS.rematchWatchTimer) clearInterval(WS.rematchWatchTimer);
     document.getElementById('wsChallengeModal').classList.add('hidden');
   }
 
@@ -2306,6 +2307,11 @@
     document.getElementById('wsChallengeBody').innerHTML = `
       <h3 class="sheet-title" style="text-align:center;">${title}</h3>
       <p class="sheet-sub" style="text-align:center;">${subtitle}</p>
+      <label style="display:flex; align-items:center; gap:.6rem; padding:.7rem .9rem; margin-top:.8rem;
+                    background: var(--cream-w); border-radius: var(--r-m); border:1px solid var(--border); cursor:pointer;">
+        <input type="checkbox" id="wsEliminationToggle" ${WS.eliminationMode ? 'checked' : ''} style="width:18px; height:18px; flex-shrink:0;">
+        <span style="font-size:.85rem;"><strong>⚔️ Last Man Standing</strong> — wrong answer or missed clock eliminates you</span>
+      </label>
       <p class="sheet-sub" style="text-align:center; font-weight:700; margin-top:.8rem;">Seconds per turn</p>
       <div class="ws-preset-row" style="display:flex; gap:.5rem; margin-bottom:.6rem;">
         <button class="btn btn-ghost ws-preset-btn" data-secs="${presets.quick}" style="flex:1;">Quick (${presets.quick}s)</button>
@@ -2318,6 +2324,10 @@
       <input class="ws-input" id="wsJoinCodeInput" placeholder="Enter match code" style="text-transform:uppercase;">
       <button class="btn btn-ghost btn-block" id="wsJoinBtn">Join match</button>
     `;
+    document.getElementById('wsEliminationToggle').addEventListener('change', (e) => {
+      WS.eliminationMode = e.target.checked;
+      renderWSSetup(); // re-render so title/subtitle reflect the new mode immediately
+    });
     document.querySelectorAll('.ws-preset-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         WS.itemSeconds = Number(btn.dataset.secs);
@@ -2574,8 +2584,14 @@
     const turnOrder = status.turnOrder || WS.turnOrder;
     const currentTurn = status.currentTurn;
     const iAmOut = WS.eliminationMode && !!(WS.eliminated || {})[WS.myName];
+    // A persistent "this is still going" progress line — without it, the
+    // waiting screen has nothing distinguishing it from a dead end.
+    const progressLine = WS.eliminationMode
+      ? `⚔️ ${turnOrder.length - Object.keys(WS.eliminated || {}).length} still standing`
+      : `Item ${(WS.itemIndex || 0) + 1} of ${WS.totalItems || '?'}`;
     document.getElementById('wsChallengeBody').innerHTML = `
       <h3 class="sheet-title" style="text-align:center;">${WS.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Live Scoreboard'}</h3>
+      <p class="sheet-sub" style="text-align:center; font-weight:700;">${progressLine} — match in progress</p>
       ${renderWSTurnStrip(turnOrder, currentTurn, status.scores || {}, WS.eliminated)}
       ${iAmOut
         ? `<div class="ws-turn-badge">👀 You're out — watching the rest of the match play out.</div>`
@@ -2610,6 +2626,13 @@
       if (WS.answeredThisTurn) return;
       WS.answeredThisTurn = true;
       clearInterval(WS.itemTimer);
+      // Disable in place rather than wiping the screen — the person still
+      // sees the word and turn strip while the answer is checked, instead
+      // of the whole view vanishing for a moment (which read as "did the
+      // match just end?").
+      input.disabled = true;
+      const btn = document.getElementById('wsSubmitWordBtn');
+      btn.disabled = true; btn.textContent = 'Checking…';
       submitWSItemAnswer(WS.myName, input.value.trim(), false);
     };
     document.getElementById('wsSubmitWordBtn').addEventListener('click', submit);
@@ -2649,6 +2672,10 @@
       if (WS.answeredThisTurn) return;
       WS.answeredThisTurn = true;
       clearInterval(WS.itemTimer);
+      document.querySelectorAll('#wsSortBuckets .sort-bucket').forEach(b => {
+        b.disabled = true;
+        if (b.dataset.subject === guess) b.style.opacity = '.6';
+      });
       submitWSItemAnswer(WS.myName, guess, false);
     };
 
@@ -2665,15 +2692,32 @@
     }, 1000);
   }
 
+  // A clear, colored, IN-CONTEXT result screen — not a bottom toast, which
+  // reads identically to a real error message and is easy to miss entirely.
+  // Shown briefly, then auto-advances to polling (or results, if the match
+  // just ended). isEliminated distinguishes "wrong but still in" (round-
+  // robin, or Last Man Standing before this answer resolved it) from
+  // "wrong AND that's the match for you" (Last Man Standing, just now).
+  function renderWSItemResult(correct, isEliminated) {
+    const bg = correct ? 'var(--green-bg)' : (isEliminated ? 'var(--red-bg)' : 'var(--coral-pale)');
+    const color = correct ? 'var(--green)' : (isEliminated ? 'var(--red)' : 'var(--coral)');
+    const icon = correct ? '✅' : (isEliminated ? '💀' : '❌');
+    const label = correct ? 'Correct!' : (isEliminated ? "Wrong — you're eliminated" : 'Not quite');
+    document.getElementById('wsChallengeBody').innerHTML = `
+      ${renderWSTurnStrip(WS.turnOrder, null, WS.scores, WS.eliminated)}
+      <div style="text-align:center; padding:1.4rem 1rem; margin:.6rem 0; border-radius: var(--r-l); background:${bg};">
+        <div style="font-size:2rem; margin-bottom:.3rem;">${icon}</div>
+        <div style="font-weight:700; color:${color};">${label}</div>
+      </div>
+    `;
+  }
+
   // `student` names whose turn is being resolved. Normally that's WS.myName
   // answering their own turn. `isRescue` marks the self-healing path in
   // pollWSStatus — nudging a stalled OTHER player's turn forward with a
   // forced-blank answer, never a real guess on their behalf (the server
   // enforces this too, independently).
   async function submitWSItemAnswer(student, answer, isRescue) {
-    if (!isRescue) {
-      document.getElementById('wsChallengeBody').innerHTML = `<div class="lib-empty">Submitting…</div>`;
-    }
     try {
       const res = await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2695,12 +2739,14 @@
         return;
       }
       WS.eliminated = data.eliminatedMap || WS.eliminated;
+      WS.scores = data.scores || WS.scores;
       if (!isRescue) {
-        if (WS.eliminationMode) {
-          showToast(data.correct ? '✅ Correct — you\'re still in!' : '💀 Wrong — you\'ve been eliminated.', 2200);
-        } else {
-          showToast(data.correct ? '✅ Correct!' : '❌ Not quite.', 1600);
-        }
+        renderWSItemResult(data.correct, WS.eliminationMode && !data.correct);
+        setTimeout(() => {
+          if (data.ended) renderWSResults(data.scores || {}, WS.eliminated, data.survivor);
+          else startWSPolling();
+        }, 1300);
+        return;
       }
       if (data.ended) { renderWSResults(data.scores || {}, WS.eliminated, data.survivor); return; }
       startWSPolling();
@@ -2735,9 +2781,103 @@
           <span>${s.correct}/${s.answered}</span>
         </div>`;
       }).join('')}
-      <button class="btn btn-primary btn-block" id="wsDoneBtn" style="margin-top:1rem;">Done</button>
+      <div id="wsRematchArea" style="margin-top:1rem;"></div>
+      <button class="btn btn-primary btn-block" id="wsDoneBtn" style="margin-top:.6rem;">Done</button>
     `;
     document.getElementById('wsDoneBtn').addEventListener('click', closeWSModal);
+
+    if (WS.isHost) {
+      document.getElementById('wsRematchArea').innerHTML = `<button class="btn btn-ghost btn-block" id="wsRematchBtn">🔁 Rematch</button>`;
+      document.getElementById('wsRematchBtn').addEventListener('click', proposeRematch);
+    } else {
+      watchForRematch(WS.code);
+    }
+
+    maybeShowPostGameFeedback();
+  }
+
+  // Host taps "Rematch" — this is just a completely normal new match
+  // creation (same as tapping "Create a match" fresh), reusing whatever
+  // mode/timer/elimination settings are still sitting in WS from the match
+  // that just ended. The only extra step is telling the OLD (now-historical)
+  // match record about the new code, so other participants — sitting on
+  // that old match's Results screen — can discover it via watchForRematch.
+  async function proposeRematch() {
+    const oldCode = WS.code, oldHostSecret = WS.hostSecret;
+    await createWSChallenge();
+    try {
+      await fetch(API_BASE + '/api/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'link_rematch', code: oldCode, hostSecret: oldHostSecret, rematchCode: WS.code }),
+      });
+    } catch (err) { /* best-effort — the new match itself still works fine even if this linking fails */ }
+  }
+
+  // Non-host participants sitting on the Results screen: poll the OLD
+  // (ended) match's own status for a rematchCode the host may attach later.
+  // Not urgent enough to need instant push — the same WS_POLL_MS cadence
+  // used everywhere else in this module is plenty responsive for "did the
+  // host start another one."
+  function watchForRematch(oldCode) {
+    const area = document.getElementById('wsRematchArea');
+    if (area) area.innerHTML = `<p class="sheet-sub" style="text-align:center; font-size:.78rem;">Waiting to see if the host starts a rematch…</p>`;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(API_BASE + '/api/challenge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'status', code: oldCode }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.ok && data.rematchCode) {
+          clearInterval(timer);
+          const area2 = document.getElementById('wsRematchArea');
+          if (!area2) return; // modal already closed
+          area2.innerHTML = `<button class="btn btn-primary btn-block" id="wsJoinRematchBtn">🔁 Join Rematch</button>`;
+          document.getElementById('wsJoinRematchBtn').addEventListener('click', () => joinWSChallenge(data.rematchCode));
+        }
+      } catch (err) { /* transient — next tick tries again */ }
+    }, WS_POLL_MS);
+    WS.rematchWatchTimer = timer;
+  }
+
+  // A short, entirely optional "how was that" prompt — shown once ever
+  // (localStorage-gated), never blocking, never repeated. Feeds straight
+  // into submit_reaction for Edidiong to read later; never shown to other
+  // players.
+  function maybeShowPostGameFeedback() {
+    let alreadyShown = false;
+    try { alreadyShown = !!localStorage.getItem('hh-mp-feedback-shown'); } catch (e) { return; }
+    if (alreadyShown) return;
+    setTimeout(() => {
+      const area = document.getElementById('wsChallengeBody');
+      if (!area) return; // modal was closed before this fired
+      const box = document.createElement('div');
+      box.style.cssText = 'margin-top:1rem; padding:.9rem; background:var(--cream-w); border-radius:var(--r-m); border:1px solid var(--border);';
+      box.innerHTML = `
+        <p style="font-weight:700; font-size:.85rem; margin-bottom:.5rem;">Got a sec? How was that match?</p>
+        <textarea id="wsFeedbackText" rows="2" style="width:100%; padding:.6rem; border-radius:var(--r-s); border:1px solid var(--border-w); font-family:inherit; font-size:.85rem; resize:vertical;" placeholder="Winning, losing, anything you want to say…"></textarea>
+        <div style="display:flex; gap:.5rem; margin-top:.5rem;">
+          <button class="btn btn-ghost" id="wsFeedbackSkip" style="flex:1;">Skip</button>
+          <button class="btn btn-primary" id="wsFeedbackSend" style="flex:1;">Send</button>
+        </div>
+      `;
+      area.appendChild(box);
+      const dismiss = () => { try { localStorage.setItem('hh-mp-feedback-shown', '1'); } catch (e) {} box.remove(); };
+      document.getElementById('wsFeedbackSkip').addEventListener('click', dismiss);
+      document.getElementById('wsFeedbackSend').addEventListener('click', async () => {
+        const text = document.getElementById('wsFeedbackText').value.trim();
+        if (text) {
+          try {
+            await fetch(API_BASE + '/api/challenge', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'submit_reaction', code: WS.code, name: WS.myName, text }),
+            });
+          } catch (err) { /* best-effort — never worth alarming the user over */ }
+        }
+        showToast('Thanks!', 1500);
+        dismiss();
+      });
+    }, 600);
   }
 
 
