@@ -2554,9 +2554,13 @@
       // their time limit (device closed, connection dropped), any other
       // polling device — including this one — nudges the match forward
       // with a forced-blank answer on their behalf, so one missing player
-      // can't freeze the game for everyone else.
-      const elapsed = data.turnStartedAt ? Date.now() - data.turnStartedAt : 0;
-      const overdue = elapsed > (WS.itemSeconds * 1000 + WS_RESCUE_GRACE_MS + 1500);
+      // can't freeze the game for everyone else. Uses the SERVER's own
+      // secsRemaining, never this device's local clock — a phone whose
+      // clock runs a few seconds fast would otherwise decide a turn is
+      // overdue while the real player is still legitimately answering,
+      // firing a rescue that collides with their actual submission.
+      const overdueBySeconds = Number.isFinite(data.secsRemaining) ? -data.secsRemaining : -Infinity;
+      const overdue = overdueBySeconds > (WS_RESCUE_GRACE_MS / 1000 + 1.5);
       if (overdue && data.currentTurn) {
         submitWSItemAnswer(data.currentTurn, '', true);
         return;
@@ -2673,9 +2677,19 @@
     try {
       const res = await fetch(API_BASE + '/api/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit_item_answer', code: WS.code, student, answer }),
+        body: JSON.stringify({ action: 'submit_item_answer', code: WS.code, student, answer, resolvesItemIndex: WS.itemIndex }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.staleTurn) {
+        // Someone else (a real answer or another device's rescue attempt)
+        // already resolved this exact turn a moment before we did — not a
+        // real error, just a race we lost. Silently pick up wherever the
+        // match actually is now instead of showing an error or, worse,
+        // letting this stale request double-advance the turn.
+        WS.itemIndex = data.itemIndex;
+        if (!isRescue) startWSPolling();
+        return;
+      }
       if (!res.ok || !data.ok) {
         if (!isRescue) { showToast('Could not submit — please try again.', 3000); renderWSWaitingFor({ turnOrder: WS.turnOrder, currentTurn: student, scores: WS.scores }); }
         return;

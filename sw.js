@@ -11,7 +11,7 @@
    students' phones keep serving the OLD app indefinitely.
 ═══════════════════════════════════════════════════════════════ */
 
-const CACHE_VERSION = 'hh-v9';
+const CACHE_VERSION = 'hh-v10';
 const APP_SHELL = [
   './',
   './index.html',
