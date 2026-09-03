@@ -912,7 +912,7 @@
     else if (action === 'quiz') openSubjectPicker('quiz');
     else if (action === 'challenge') openQuizChallenge();
     else if (action === 'project') openProjectHelper();
-    else if (action === 'games') { showScreen('gamesHubScreen'); }
+    else if (action === 'games') { showScreen('gamesHubScreen'); checkForActiveMatchRejoin(); }
     else if (action === 'library') openSubjectPicker('library');
   }
 
@@ -2266,6 +2266,122 @@
     });
   }
 
+  const ACTIVE_MATCH_KEY = 'hh-active-match';
+
+  // Saved the instant a match is successfully created or joined, so that
+  // if this device closes mid-match (accidentally or on purpose) and
+  // reopens the app, it can offer to bring the person right back instead
+  // of just losing their spot. hostSecret is only kept when this device
+  // IS the host — 'join' deliberately never issues one to anyone else, so
+  // there's nothing extra being exposed here that this device didn't
+  // already legitimately hold.
+  function saveActiveMatchPointer() {
+    try {
+      localStorage.setItem(ACTIVE_MATCH_KEY, JSON.stringify({
+        code: WS.code, myName: WS.myName, contentMode: WS.contentMode,
+        isHost: WS.isHost, hostSecret: WS.isHost ? WS.hostSecret : undefined,
+      }));
+    } catch (err) { /* not fatal — rejoin just won't be offered later if this fails */ }
+  }
+
+  function clearActiveMatchPointer() {
+    try { localStorage.removeItem(ACTIVE_MATCH_KEY); } catch (err) { /* not fatal */ }
+  }
+
+  // Called whenever the Games Hub is opened — cheap enough (one status
+  // fetch, only when a pointer actually exists) to check every time rather
+  // than needing its own polling loop while the person is elsewhere in
+  // the app.
+  async function checkForActiveMatchRejoin() {
+    const existing = document.getElementById('gamesHubRejoinBanner');
+    if (existing) existing.remove();
+    let pointer = null;
+    try { pointer = JSON.parse(localStorage.getItem(ACTIVE_MATCH_KEY) || 'null'); } catch (err) { pointer = null; }
+    if (!pointer || !pointer.code) return;
+    try {
+      const res = await fetch(API_BASE + '/api/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'status', code: pointer.code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok || data.ended) { clearActiveMatchPointer(); return; } // match is over — nothing to rejoin
+      const gameLabel = pointer.contentMode === 'categorySort' ? 'Category Sort' : 'Word Scramble';
+      const banner = document.createElement('div');
+      banner.id = 'gamesHubRejoinBanner';
+      banner.style.cssText = 'margin:0 0 1rem; padding:.9rem; background:var(--coral-pale); border:1px solid var(--coral); border-radius:var(--r-m);';
+      banner.innerHTML = `
+        <p style="font-weight:700; font-size:.88rem;">🔴 You have a ${safe(gameLabel)} match in progress</p>
+        <button class="btn btn-primary btn-block" id="gamesHubRejoinBtn" style="margin-top:.5rem;">Rejoin match</button>
+      `;
+      const container = document.querySelector('#gamesHubScreen .container');
+      if (container) container.prepend(banner);
+      const btn = document.getElementById('gamesHubRejoinBtn');
+      if (btn) btn.addEventListener('click', () => rejoinActiveMatch(pointer));
+    } catch (err) { /* transient — just don't show the banner this time, no real harm */ }
+  }
+
+  // Rebuilds WS state from a saved pointer and drops straight into normal
+  // polling — deliberately skips 'join' entirely (that action is for NEW
+  // participants; this device is already in turnOrder/turnQueue from
+  // before). The very next poll response fills in content, scores, and
+  // whose turn it is, the same way it does for every other device.
+  function rejoinActiveMatch(pointer) {
+    ensureUser(() => {
+      WS = {
+        code: pointer.code, hostSecret: pointer.hostSecret || null, isHost: !!pointer.isHost,
+        myName: pointer.myName || S.currentUser, subjectKey: null, contentMode: pointer.contentMode,
+        pollTimer: null, itemTimer: null, waitCountdownTimer: null, secsLeft: 0,
+        itemSeconds: WS_WORD_SECONDS_PRESETS.standard, // corrected by the first poll below
+        words: [], items: [], bucketSubjects: [],
+        turnOrder: [], scores: {}, itemIndex: 0, totalItems: 0, turnStartedAt: null,
+        answeredThisTurn: false, eliminationMode: false, eliminated: {},
+      };
+      document.getElementById('wsChallengeBody').innerHTML = `<div class="lib-empty">Reconnecting…</div>`;
+      document.getElementById('wsChallengeModal').classList.remove('hidden');
+      startWSPolling();
+    });
+  }
+
+  // A player choosing to deliberately step away — as opposed to the
+  // passive timeout-rescue, which only handles someone going quiet for a
+  // single turn. This removes them from the match's turn rotation
+  // immediately, server-side, rather than making everyone else wait out a
+  // rescue cycle.
+  async function leaveMatch() {
+    if (WS && WS.code) {
+      try {
+        await fetch(API_BASE + '/api/challenge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'leave_match', code: WS.code, name: WS.myName }),
+        });
+      } catch (err) { /* best-effort — closing the modal locally still gets them out either way */ }
+    }
+    clearActiveMatchPointer();
+    closeWSModal();
+  }
+
+  // Host-only escape hatch for a stalled match — ends it right now with
+  // whatever scores/state currently stand, rather than everyone waiting
+  // out however many passive rescue cycles remain.
+  async function endMatchForEveryone() {
+    if (!WS || !WS.code || !WS.isHost) return;
+    try {
+      const res = await fetch(API_BASE + '/api/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'force_end', code: WS.code, hostSecret: WS.hostSecret }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        if (WS.pollTimer) clearInterval(WS.pollTimer);
+        renderWSResults(data.scores || WS.scores, data.eliminated || WS.eliminated, null);
+      } else {
+        showToast('Could not end the match — please try again.', 3000);
+      }
+    } catch (err) {
+      showToast('Could not end the match — check your connection.', 3000);
+    }
+  }
+
   function openMultiplayerSetup(contentMode, subjectKey, eliminationMode) {
     ensureUser(() => {
       WS = {
@@ -2388,6 +2504,7 @@
       WS.hostSecret = data.hostSecret;
       WS.isHost = true;
       WS.turnOrder = [WS.myName];
+      saveActiveMatchPointer();
       showToast('Match created — share the code!', 2500);
       renderWSWaitingRoom({ participants: { [WS.myName]: true } });
       WS.pollTimer = setInterval(pollWSWaitingRoom, WS_POLL_MS);
@@ -2427,6 +2544,7 @@
       } else {
         WS.words = data.challenge.words || [];
       }
+      saveActiveMatchPointer();
       if (data.challenge.startedAt) {
         // Rare edge case — joined right as the host started. Just fall
         // straight into normal polling instead of a waiting room that
@@ -2453,6 +2571,7 @@
       ${WS.isHost
         ? `<button class="btn btn-primary btn-block" id="wsStartMatchBtn">Start Match →</button>`
         : `<div class="ws-turn-badge">⏳ Waiting for the host to start the match…</div>`}
+      <button class="btn btn-ghost btn-block" id="wsLeaveBtn" style="margin-top:.6rem; font-size:.82rem;">Leave</button>
     `;
     if (WS.isHost) {
       document.getElementById('wsStartMatchBtn').addEventListener('click', () => {
@@ -2466,6 +2585,7 @@
         startWSMatch();
       });
     }
+    document.getElementById('wsLeaveBtn').addEventListener('click', leaveMatch);
   }
 
   async function pollWSWaitingRoom() {
@@ -2548,9 +2668,20 @@
       WS.turnOrder = data.turnOrder || WS.turnOrder;
       WS.scores = data.scores || WS.scores;
       WS.itemIndex = data.itemIndex || 0;
+      WS.itemSeconds = data.itemSeconds || WS.itemSeconds;
       WS.totalItems = data.totalItems || WS.totalItems;
       WS.turnStartedAt = data.turnStartedAt;
       WS.eliminated = data.eliminated || WS.eliminated;
+      WS.eliminationMode = !!data.eliminationMode;
+      // These only ever change from undefined to populated (a match's
+      // content never changes mid-match), so this is safe to run on every
+      // poll — for a normal in-session player it's a harmless no-op after
+      // the first poll, and for a rejoined device (which skipped 'join'
+      // entirely) it's what actually lets them play a turn again, not
+      // just watch.
+      if (data.words) WS.words = data.words;
+      if (data.items) WS.items = data.items;
+      if (data.bucketSubjects) WS.bucketSubjects = data.bucketSubjects;
 
       if (data.ended) {
         clearInterval(WS.pollTimer); WS.pollTimer = null;
@@ -2614,7 +2745,17 @@
           <div style="font-weight:700; font-size:1.3rem; margin-top:.15rem;">${safe(currentTurn || '…')}</div>
           ${startSecs !== null ? `<div class="ws-timer" id="wsWaitCountdown" style="margin-top:.4rem;">${startSecs}s</div>` : ''}
         </div>`}
+      <div style="display:flex; gap:.5rem; margin-top:.6rem;">
+        <button class="btn btn-ghost" id="wsLeaveBtn" style="flex:1; font-size:.8rem;">Leave</button>
+        ${WS.isHost ? `<button class="btn btn-ghost" id="wsEndMatchBtn" style="flex:1; font-size:.8rem;">End match for everyone</button>` : ''}
+      </div>
     `;
+    document.getElementById('wsLeaveBtn').addEventListener('click', leaveMatch);
+    if (WS.isHost) {
+      document.getElementById('wsEndMatchBtn').addEventListener('click', () => {
+        if (confirm('End this match now for everyone? Current scores will be final.')) endMatchForEveryone();
+      });
+    }
     if (startSecs !== null && !iAmOut) {
       let n = startSecs;
       WS.waitCountdownTimer = setInterval(() => {
@@ -2870,6 +3011,7 @@
   }
 
   function renderWSResults(scores, eliminated, survivor) {
+    clearActiveMatchPointer(); // the match is genuinely over — nothing left to rejoin
     eliminated = eliminated || {};
     const isElimination = WS.eliminationMode;
     // Last Man Standing crowns whoever survived, not whoever has the
