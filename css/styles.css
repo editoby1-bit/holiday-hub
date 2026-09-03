@@ -310,6 +310,10 @@ a { color:inherit; text-decoration:none; }
   background: rgba(10,22,40,.06);
   display:flex; align-items:center; justify-content:center;
 }
+/* Lets the multiplayer result overlay cover just the question content
+   (word/term, timer, turn strip) without also covering the modal's own
+   close button, which sits as a sibling of this element. */
+#wsChallengeBody { position: relative; }
 
 /* Game Explainer is a centered dialog, not a bottom sheet — reads better
    as "here's what you're about to do" than an anchored drawer. */

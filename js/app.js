@@ -896,7 +896,7 @@
       });
     });
     document.querySelectorAll('.game-choice-card').forEach(card => {
-      if (card.id === 'lastManStandingBtn') return; // wired separately below
+      if (card.id === 'lastManStandingBtn' || card.id === 'recentGamesBtn') return; // wired separately below
       card.addEventListener('click', () => {
         const game = card.dataset.game;
         if (game === 'sort' || game === 'sequence' || game === 'equation') showGameExplainer(game, null);
@@ -904,6 +904,7 @@
       });
     });
     document.getElementById('lastManStandingBtn').addEventListener('click', openLastManStandingPicker);
+    document.getElementById('recentGamesBtn').addEventListener('click', openGamesDashboard);
   }
 
   function handleFeature(action) {
@@ -2285,6 +2286,8 @@
     if (WS && WS.pollTimer) clearInterval(WS.pollTimer);
     if (WS && WS.itemTimer) clearInterval(WS.itemTimer);
     if (WS && WS.rematchWatchTimer) clearInterval(WS.rematchWatchTimer);
+    if (WS && WS.hostRematchPollTimer) clearInterval(WS.hostRematchPollTimer);
+    if (WS && WS.reactionWatchTimer) clearInterval(WS.reactionWatchTimer);
     document.getElementById('wsChallengeModal').classList.add('hidden');
   }
 
@@ -2692,24 +2695,40 @@
     }, 1000);
   }
 
-  // A clear, colored, IN-CONTEXT result screen — not a bottom toast, which
-  // reads identically to a real error message and is easy to miss entirely.
-  // Shown briefly, then auto-advances to polling (or results, if the match
-  // just ended). isEliminated distinguishes "wrong but still in" (round-
+  // Overlays the result ON TOP of the question screen that's still visible
+  // underneath (word/term, disabled input, turn strip) — this is what
+  // keeps it feeling like the SAME match continuing, not a jump to a
+  // different "did this end?" screen. Shows who's up next and their
+  // current tally, then a short countdown before the view actually
+  // advances. isEliminated distinguishes "wrong but still in" (round-
   // robin, or Last Man Standing before this answer resolved it) from
   // "wrong AND that's the match for you" (Last Man Standing, just now).
-  function renderWSItemResult(correct, isEliminated) {
+  function renderWSItemResult(correct, isEliminated, nextPlayerName, nextPlayerScore, onDone) {
     const bg = correct ? 'var(--green-bg)' : (isEliminated ? 'var(--red-bg)' : 'var(--coral-pale)');
     const color = correct ? 'var(--green)' : (isEliminated ? 'var(--red)' : 'var(--coral)');
     const icon = correct ? '✅' : (isEliminated ? '💀' : '❌');
     const label = correct ? 'Correct!' : (isEliminated ? "Wrong — you're eliminated" : 'Not quite');
-    document.getElementById('wsChallengeBody').innerHTML = `
-      ${renderWSTurnStrip(WS.turnOrder, null, WS.scores, WS.eliminated)}
-      <div style="text-align:center; padding:1.4rem 1rem; margin:.6rem 0; border-radius: var(--r-l); background:${bg};">
-        <div style="font-size:2rem; margin-bottom:.3rem;">${icon}</div>
-        <div style="font-weight:700; color:${color};">${label}</div>
-      </div>
+    const nextLine = nextPlayerName
+      ? `<p style="font-weight:700; margin-top:.6rem;">Next up: ${safe(nextPlayerName)} <span style="font-weight:400; opacity:.75; font-size:.85rem;">(${nextPlayerScore.correct}/${nextPlayerScore.answered} so far)</span></p>`
+      : '';
+    const countdownStart = nextPlayerName ? 3 : 1;
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `position:absolute; inset:0; background:${bg}; backdrop-filter:blur(3px); display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:var(--r-l); z-index:2; padding:1rem; text-align:center;`;
+    overlay.innerHTML = `
+      <div style="font-size:2.4rem; margin-bottom:.2rem;">${icon}</div>
+      <div style="font-weight:700; font-size:1.05rem; color:${color};">${label}</div>
+      ${nextLine}
+      ${nextPlayerName ? `<p style="margin-top:.7rem; font-size:.76rem; color:var(--text-dim);">Next turn in <span id="wsCountdownNum">${countdownStart}</span>…</p>` : ''}
     `;
+    document.getElementById('wsChallengeBody').appendChild(overlay);
+
+    let n = countdownStart;
+    const timer = setInterval(() => {
+      n--;
+      const el = document.getElementById('wsCountdownNum');
+      if (el) el.textContent = n;
+      if (n <= 0) { clearInterval(timer); onDone(); }
+    }, 1000);
   }
 
   // `student` names whose turn is being resolved. Normally that's WS.myName
@@ -2741,11 +2760,12 @@
       WS.eliminated = data.eliminatedMap || WS.eliminated;
       WS.scores = data.scores || WS.scores;
       if (!isRescue) {
-        renderWSItemResult(data.correct, WS.eliminationMode && !data.correct);
-        setTimeout(() => {
+        const nextName = data.ended ? null : data.nextTurn;
+        const nextScore = nextName ? (data.scores[nextName] || { correct: 0, answered: 0 }) : null;
+        renderWSItemResult(data.correct, WS.eliminationMode && !data.correct, nextName, nextScore, () => {
           if (data.ended) renderWSResults(data.scores || {}, WS.eliminated, data.survivor);
           else startWSPolling();
-        }, 1300);
+        });
         return;
       }
       if (data.ended) { renderWSResults(data.scores || {}, WS.eliminated, data.survivor); return; }
@@ -2753,6 +2773,36 @@
     } catch (err) {
       if (!isRescue) showToast('Could not submit — check your connection.', 3000);
     }
+  }
+
+  const MATCH_HISTORY_KEY = 'hh-match-history';
+  const MATCH_HISTORY_MAX = 5; // oldest entry drops off once a 6th is recorded — keeps this at zero ongoing storage cost
+
+  // Recorded once per finished match, on THIS device only — there's no
+  // server-side match history at all, by design, to avoid the exact
+  // "wastes space" problem raised about persistent feedback storage.
+  // hostSecret is only kept when this device was the host, and only so
+  // the Games Dashboard can action a later rematch request without
+  // needing a live session — it's the same secret this device already
+  // legitimately held in memory for the match, just kept a bit longer.
+  function recordMatchHistory(scores, eliminated, survivor) {
+    try {
+      const isElimination = WS.eliminationMode;
+      const myScore = scores[WS.myName] || { correct: 0, answered: 0 };
+      const opponents = (WS.turnOrder || []).filter(n => n !== WS.myName);
+      const entry = {
+        code: WS.code, mode: WS.contentMode, eliminationMode: isElimination,
+        opponents, myScore,
+        won: isElimination ? survivor === WS.myName : undefined,
+        wasHost: WS.isHost, hostSecret: WS.isHost ? WS.hostSecret : undefined,
+        at: Date.now(),
+      };
+      let history = [];
+      try { history = JSON.parse(localStorage.getItem(MATCH_HISTORY_KEY) || '[]'); } catch (e) { history = []; }
+      history.unshift(entry);
+      if (history.length > MATCH_HISTORY_MAX) history = history.slice(0, MATCH_HISTORY_MAX);
+      localStorage.setItem(MATCH_HISTORY_KEY, JSON.stringify(history));
+    } catch (err) { /* localStorage unavailable — history just won't be recorded, not fatal */ }
   }
 
   function renderWSResults(scores, eliminated, survivor) {
@@ -2782,28 +2832,95 @@
         </div>`;
       }).join('')}
       <div id="wsRematchArea" style="margin-top:1rem;"></div>
+      <div id="wsReactionArea"></div>
       <button class="btn btn-primary btn-block" id="wsDoneBtn" style="margin-top:.6rem;">Done</button>
     `;
     document.getElementById('wsDoneBtn').addEventListener('click', closeWSModal);
 
-    if (WS.isHost) {
-      document.getElementById('wsRematchArea').innerHTML = `<button class="btn btn-ghost btn-block" id="wsRematchBtn">🔁 Rematch</button>`;
-      document.getElementById('wsRematchBtn').addEventListener('click', proposeRematch);
-    } else {
-      watchForRematch(WS.code);
-    }
+    recordMatchHistory(scores, eliminated, survivor);
 
+    if (WS.isHost) renderHostRematchArea();
+    else renderGuestRematchArea();
+
+    watchForIncomingReaction();
     maybeShowPostGameFeedback();
   }
 
-  // Host taps "Rematch" — this is just a completely normal new match
-  // creation (same as tapping "Create a match" fresh), reusing whatever
-  // mode/timer/elimination settings are still sitting in WS from the match
-  // that just ended. The only extra step is telling the OLD (now-historical)
-  // match record about the new code, so other participants — sitting on
-  // that old match's Results screen — can discover it via watchForRematch.
-  async function proposeRematch() {
-    const oldCode = WS.code, oldHostSecret = WS.hostSecret;
+  function renderHostRematchArea() {
+    const area = document.getElementById('wsRematchArea');
+    area.innerHTML = `<button class="btn btn-ghost btn-block" id="wsRematchBtn">🔁 Do you want to play again?</button><div id="wsIncomingRequests" style="margin-top:.6rem;"></div>`;
+    document.getElementById('wsRematchBtn').addEventListener('click', () => proposeRematch());
+    pollHostRematchRequests();
+  }
+
+  // While the host sits on their own Results screen, watch for other
+  // participants asking to play again and surface each with an explicit
+  // Accept/Decline — this is the "queue" the host actually sees and acts
+  // on, live. (The Games Dashboard offers the same thing later, for
+  // anyone who's already moved on.)
+  function pollHostRematchRequests() {
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(API_BASE + '/api/challenge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'status', code: WS.code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const box = document.getElementById('wsIncomingRequests');
+        if (!box) { clearInterval(timer); return; } // modal closed or moved on
+        if (data.rematchCode) { clearInterval(timer); return; } // host already started one directly
+        const names = Object.keys(data.rematchRequests || {});
+        if (names.length === 0) { box.innerHTML = ''; return; }
+        box.innerHTML = names.map(n => `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.6rem .8rem; background:var(--cream-w); border-radius:var(--r-m); margin-top:.4rem;">
+            <span style="font-size:.85rem;">🔁 <strong>${safe(n)}</strong> wants to play again…</span>
+            <div style="display:flex; gap:.4rem;">
+              <button class="btn btn-primary ws-approve-btn" data-name="${safe(n)}" style="padding:.3rem .7rem; font-size:.78rem;">Accept</button>
+              <button class="btn btn-ghost ws-decline-btn" data-name="${safe(n)}" style="padding:.3rem .7rem; font-size:.78rem;">Decline</button>
+            </div>
+          </div>
+        `).join('');
+        box.querySelectorAll('.ws-approve-btn').forEach(btn => btn.addEventListener('click', () => { clearInterval(timer); proposeRematch(); }));
+        box.querySelectorAll('.ws-decline-btn').forEach(btn => btn.addEventListener('click', async () => {
+          try {
+            await fetch(API_BASE + '/api/challenge', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'decline_rematch', code: WS.code, hostSecret: WS.hostSecret, name: btn.dataset.name }),
+            });
+          } catch (err) { /* next poll will just show it again — no need to alarm over a transient failure */ }
+        }));
+      } catch (err) { /* transient — next tick tries again */ }
+    }, WS_POLL_MS);
+    WS.hostRematchPollTimer = timer;
+  }
+
+  function renderGuestRematchArea() {
+    const area = document.getElementById('wsRematchArea');
+    area.innerHTML = `<button class="btn btn-ghost btn-block" id="wsRequestRematchBtn">🔁 Do you want to play again?</button>`;
+    document.getElementById('wsRequestRematchBtn').addEventListener('click', async () => {
+      area.innerHTML = `<p class="sheet-sub" style="text-align:center; font-size:.78rem;">Waiting for the host to approve your rematch request…</p>`;
+      try {
+        await fetch(API_BASE + '/api/challenge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'request_rematch', code: WS.code, name: WS.myName }),
+        });
+      } catch (err) { /* the watcher below will just never find a rematchCode — no separate error needed */ }
+      watchForRematch(WS.code);
+    });
+  }
+
+  // Host taps (or accepts a request for) "play again" — this is just a
+  // completely normal new match creation (same as tapping "Create a
+  // match" fresh), reusing whatever mode/timer/elimination settings are
+  // still sitting in WS from the match that just ended. The only extra
+  // step is telling the OLD (now-historical) match record about the new
+  // code, so other participants — sitting on that old match's Results
+  // screen or checking the Games Dashboard later — can discover it.
+  // Optional overrides let the Games Dashboard trigger this for a match
+  // that isn't the live WS session (see openGamesDashboard).
+  async function proposeRematch(overrideOldCode, overrideOldHostSecret) {
+    const oldCode = overrideOldCode || WS.code;
+    const oldHostSecret = overrideOldHostSecret || WS.hostSecret;
     await createWSChallenge();
     try {
       await fetch(API_BASE + '/api/challenge', {
@@ -2813,14 +2930,11 @@
     } catch (err) { /* best-effort — the new match itself still works fine even if this linking fails */ }
   }
 
-  // Non-host participants sitting on the Results screen: poll the OLD
-  // (ended) match's own status for a rematchCode the host may attach later.
-  // Not urgent enough to need instant push — the same WS_POLL_MS cadence
-  // used everywhere else in this module is plenty responsive for "did the
-  // host start another one."
+  // Non-host participants sitting on the Results screen, after asking to
+  // play again: poll the OLD (ended) match's own status for a rematchCode
+  // the host may attach later. Not urgent enough to need instant push —
+  // the same WS_POLL_MS cadence used everywhere else is plenty responsive.
   function watchForRematch(oldCode) {
-    const area = document.getElementById('wsRematchArea');
-    if (area) area.innerHTML = `<p class="sheet-sub" style="text-align:center; font-size:.78rem;">Waiting to see if the host starts a rematch…</p>`;
     const timer = setInterval(async () => {
       try {
         const res = await fetch(API_BASE + '/api/challenge', {
@@ -2840,10 +2954,38 @@
     WS.rematchWatchTimer = timer;
   }
 
-  // A short, entirely optional "how was that" prompt — shown once ever
-  // (localStorage-gated), never blocking, never repeated. Feeds straight
-  // into submit_reaction for Edidiong to read later; never shown to other
-  // players.
+  // Checks ONCE for a message left by the other player — never stored
+  // anywhere beyond the single 'pendingReaction' field on the match's own
+  // (already-expiring) record, and deleted the instant it's delivered, so
+  // it can only ever be seen once, by whoever asks first.
+  function watchForIncomingReaction() {
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(API_BASE + '/api/challenge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'consume_reaction', code: WS.code, viewer: WS.myName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.ok && data.reaction) {
+          clearInterval(timer);
+          const area = document.getElementById('wsReactionArea');
+          if (!area) return; // modal already closed
+          const box = document.createElement('div');
+          box.style.cssText = 'margin-top:.8rem; padding:.8rem .9rem; background:var(--coral-pale); border:1px solid var(--coral); border-radius:var(--r-m);';
+          box.innerHTML = `<p style="font-size:.85rem;">💬 <strong>${safe(data.reaction.from)}</strong> says: "${safe(data.reaction.text)}"</p>`;
+          area.appendChild(box);
+        }
+      } catch (err) { /* transient — next tick tries again */ }
+    }, WS_POLL_MS);
+    WS.reactionWatchTimer = timer;
+  }
+
+  // A short, entirely optional message TO the other player — shown once
+  // ever on this device (localStorage-gated) so it doesn't nag after
+  // every single match. Deliberately NOT stored anywhere persistent
+  // server-side (see 'send_reaction' in the API) — it's delivered once to
+  // whoever's on the other end, then permanently gone, which is why the
+  // prompt says so plainly before anyone types anything.
   function maybeShowPostGameFeedback() {
     let alreadyShown = false;
     try { alreadyShown = !!localStorage.getItem('hh-mp-feedback-shown'); } catch (e) { return; }
@@ -2854,8 +2996,9 @@
       const box = document.createElement('div');
       box.style.cssText = 'margin-top:1rem; padding:.9rem; background:var(--cream-w); border-radius:var(--r-m); border:1px solid var(--border);';
       box.innerHTML = `
-        <p style="font-weight:700; font-size:.85rem; margin-bottom:.5rem;">Got a sec? How was that match?</p>
-        <textarea id="wsFeedbackText" rows="2" style="width:100%; padding:.6rem; border-radius:var(--r-s); border:1px solid var(--border-w); font-family:inherit; font-size:.85rem; resize:vertical;" placeholder="Winning, losing, anything you want to say…"></textarea>
+        <p style="font-weight:700; font-size:.85rem; margin-bottom:.3rem;">Got a sec? Leave a message for your opponent.</p>
+        <p style="font-size:.72rem; color:var(--text-dim); margin-bottom:.5rem;">They'll see this once, then it's gone for good — not saved anywhere.</p>
+        <textarea id="wsFeedbackText" rows="2" style="width:100%; padding:.6rem; border-radius:var(--r-s); border:1px solid var(--border-w); font-family:inherit; font-size:.85rem; resize:vertical;" placeholder="GG! Good game, well played…"></textarea>
         <div style="display:flex; gap:.5rem; margin-top:.5rem;">
           <button class="btn btn-ghost" id="wsFeedbackSkip" style="flex:1;">Skip</button>
           <button class="btn btn-primary" id="wsFeedbackSend" style="flex:1;">Send</button>
@@ -2870,14 +3013,96 @@
           try {
             await fetch(API_BASE + '/api/challenge', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'submit_reaction', code: WS.code, name: WS.myName, text }),
+              body: JSON.stringify({ action: 'send_reaction', code: WS.code, from: WS.myName, text }),
             });
           } catch (err) { /* best-effort — never worth alarming the user over */ }
         }
-        showToast('Thanks!', 1500);
+        showToast('Sent!', 1500);
         dismiss();
       });
     }, 600);
+  }
+
+  // ──────────── GAMES DASHBOARD (local match history) ────────────
+  // Opened on demand from the Games Hub — reads the small local history
+  // recorded above and, for the most recently HOSTED match, checks once
+  // (not a background poll) for any pending rematch request so a host who
+  // already left the Results screen can still act on it later.
+  function openGamesDashboard() {
+    ensureUser(() => {
+      let history = [];
+      try { history = JSON.parse(localStorage.getItem(MATCH_HISTORY_KEY) || '[]'); } catch (e) { history = []; }
+      document.getElementById('wsChallengeBody').innerHTML = `
+        <h3 class="sheet-title" style="text-align:center;">🕹 Recent Games</h3>
+        <p class="sheet-sub" style="text-align:center; font-size:.78rem;">Your last ${MATCH_HISTORY_MAX} multiplayer matches on this device.</p>
+        <div id="gdHistoryList" style="margin-top:.8rem;">
+          ${history.length === 0 ? `<div class="lib-empty">No multiplayer matches yet — start one from Games!</div>` : history.map(renderHistoryRow).join('')}
+        </div>
+      `;
+      document.getElementById('wsChallengeModal').classList.remove('hidden');
+      const lastHosted = history.find(h => h.wasHost && h.hostSecret);
+      if (lastHosted) checkDashboardRematchRequests(lastHosted, history);
+    });
+  }
+
+  function renderHistoryRow(h) {
+    const gameLabel = h.mode === 'categorySort' ? 'Category Sort' : 'Word Scramble';
+    const modeLabel = h.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Round-robin';
+    const resultLabel = h.eliminationMode
+      ? (h.won ? '🏆 You won' : '💀 Eliminated')
+      : `${h.myScore.correct}/${h.myScore.answered} correct`;
+    const when = new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `
+      <div style="padding:.7rem .9rem; background:var(--cream-w); border-radius:var(--r-m); margin-bottom:.5rem;">
+        <div style="display:flex; justify-content:space-between; font-weight:700; font-size:.85rem;">
+          <span>${gameLabel}</span><span style="font-weight:400; color:var(--text-dim); font-size:.75rem;">${when}</span>
+        </div>
+        <div style="font-size:.78rem; color:var(--text-dim); margin-top:.15rem;">${modeLabel} · vs ${h.opponents.map(safe).join(', ') || '—'}</div>
+        <div style="font-size:.82rem; margin-top:.25rem;">${resultLabel}</div>
+      </div>
+    `;
+  }
+
+  async function checkDashboardRematchRequests(entry, history) {
+    try {
+      const res = await fetch(API_BASE + '/api/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'status', code: entry.code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const names = Object.keys(data.rematchRequests || {});
+      if (!data.ok || data.rematchCode || names.length === 0) return; // nothing pending, or already resolved
+      const list = document.getElementById('gdHistoryList');
+      if (!list) return;
+      const banner = document.createElement('div');
+      banner.style.cssText = 'padding:.7rem .9rem; background:var(--coral-pale); border:1px solid var(--coral); border-radius:var(--r-m); margin-bottom:.6rem;';
+      banner.innerHTML = names.map(n => `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.2rem 0;">
+          <span style="font-size:.85rem;">🔁 <strong>${safe(n)}</strong> wants to play again…</span>
+          <div style="display:flex; gap:.4rem;">
+            <button class="btn btn-primary gd-approve-btn" data-name="${safe(n)}" style="padding:.3rem .7rem; font-size:.78rem;">Accept</button>
+            <button class="btn btn-ghost gd-decline-btn" data-name="${safe(n)}" style="padding:.3rem .7rem; font-size:.78rem;">Decline</button>
+          </div>
+        </div>
+      `).join('');
+      list.prepend(banner);
+      banner.querySelectorAll('.gd-approve-btn').forEach(btn => btn.addEventListener('click', () => {
+        ensureUser(() => {
+          openMultiplayerSetup(entry.mode, null, entry.eliminationMode);
+          proposeRematch(entry.code, entry.hostSecret);
+        });
+      }));
+      banner.querySelectorAll('.gd-decline-btn').forEach(btn => btn.addEventListener('click', async () => {
+        try {
+          await fetch(API_BASE + '/api/challenge', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'decline_rematch', code: entry.code, hostSecret: entry.hostSecret, name: btn.dataset.name }),
+          });
+          banner.remove();
+          showToast('Declined.', 1500);
+        } catch (err) { showToast('Could not decline — try again.', 2500); }
+      }));
+    } catch (err) { /* best-effort — no big deal if this fails silently */ }
   }
 
 
