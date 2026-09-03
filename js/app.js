@@ -2560,7 +2560,7 @@
 
       if (data.currentTurn === WS.myName) {
         clearInterval(WS.pollTimer); WS.pollTimer = null;
-        startMyWSItem();
+        renderWSGetReady(startMyWSItem);
         return;
       }
 
@@ -2590,7 +2590,10 @@
     const currentTurn = status.currentTurn;
     const iAmOut = WS.eliminationMode && !!(WS.eliminated || {})[WS.myName];
     // A persistent "this is still going" progress line — without it, the
-    // waiting screen has nothing distinguishing it from a dead end.
+    // waiting screen has nothing distinguishing it from a dead end. No
+    // separate section heading above it — a "Live Scoreboard" label read
+    // as a dashboard/menu title, disconnected from the match itself; the
+    // progress line plus the turn card below now carry that job instead.
     const progressLine = WS.eliminationMode
       ? `⚔️ ${turnOrder.length - Object.keys(WS.eliminated || {}).length} still standing`
       : `Item ${(WS.itemIndex || 0) + 1} of ${WS.totalItems || '?'}`;
@@ -2600,18 +2603,17 @@
     // sitting static for up to WS_POLL_MS at a time.
     const startSecs = Number.isFinite(status.secsRemaining) ? Math.max(0, Math.ceil(status.secsRemaining)) : null;
     document.getElementById('wsChallengeBody').innerHTML = `
-      <h3 class="sheet-title" style="text-align:center;">${WS.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Live Scoreboard'}</h3>
-      <p class="sheet-sub" style="text-align:center; font-weight:700;">${progressLine} — match in progress</p>
+      <p class="sheet-sub" style="text-align:center; font-weight:700; margin-bottom:.7rem;">${progressLine} — match in progress</p>
       ${renderWSTurnStrip(turnOrder, currentTurn, status.scores || {}, WS.eliminated)}
       ${iAmOut
         ? `<div class="ws-turn-badge">👀 You're out — watching the rest of the match play out.</div>`
         : `
-        <div style="text-align:center; padding:1rem; margin:.6rem 0; border-radius:var(--r-l); background:var(--cream-w); border:1px solid var(--border);">
-          <div style="font-size:.78rem; color:var(--text-dim); margin-bottom:.2rem;">Current turn</div>
-          <div style="font-weight:700; font-size:1.15rem;">${safe(currentTurn || '…')}</div>
-          ${startSecs !== null ? `<div class="ws-timer" id="wsWaitCountdown" style="margin-top:.3rem;">${startSecs}s</div>` : ''}
+        <div style="text-align:center; padding:1.3rem 1rem; margin:.6rem 0; border-radius:var(--r-l);
+                    background:linear-gradient(135deg, var(--cream-w), var(--coral-pale)); border:1px solid var(--border);">
+          <div style="font-size:.78rem; color:var(--text-dim); letter-spacing:.03em; text-transform:uppercase;">Waiting on</div>
+          <div style="font-weight:700; font-size:1.3rem; margin-top:.15rem;">${safe(currentTurn || '…')}</div>
+          ${startSecs !== null ? `<div class="ws-timer" id="wsWaitCountdown" style="margin-top:.4rem;">${startSecs}s</div>` : ''}
         </div>`}
-      <p class="sheet-sub" style="text-align:center; font-size:.72rem;">This updates automatically — no need to refresh.</p>
     `;
     if (startSecs !== null && !iAmOut) {
       let n = startSecs;
@@ -2622,6 +2624,31 @@
         if (n <= 0) clearInterval(WS.waitCountdownTimer); // next poll (≤WS_POLL_MS away) reseeds it correctly either way
       }, 1000);
     }
+  }
+
+  // A short, symmetric "you're up" moment for whoever's turn is arriving —
+  // without this, only the player who'd just answered got any kind of
+  // transition (their own "Next turn in 3…2…1…" overlay), while everyone
+  // else just silently jumped from the waiting card straight into a live
+  // timer on their next poll. This gives every player the same brief beat
+  // before their question actually appears.
+  function renderWSGetReady(onDone) {
+    const secs = 2;
+    document.getElementById('wsChallengeBody').innerHTML = `
+      ${renderWSTurnStrip(WS.turnOrder, WS.myName, WS.scores, WS.eliminated)}
+      <div style="text-align:center; padding:1.3rem 1rem; margin:.6rem 0; border-radius:var(--r-l); background:var(--coral-pale);">
+        <div style="font-size:1.8rem;">✨</div>
+        <div style="font-weight:700; font-size:1.1rem;">Your turn!</div>
+        <div class="ws-timer" id="wsGetReadyCountdown" style="margin-top:.3rem;">${secs}</div>
+      </div>
+    `;
+    let n = secs;
+    const timer = setInterval(() => {
+      n--;
+      const el = document.getElementById('wsGetReadyCountdown');
+      if (el) el.textContent = n;
+      if (n <= 0) { clearInterval(timer); onDone(); }
+    }, 1000);
   }
 
   function startMyWSItem() {
@@ -2797,33 +2824,49 @@
   }
 
   const MATCH_HISTORY_KEY = 'hh-match-history';
-  const MATCH_HISTORY_MAX = 5; // oldest entry drops off once a 6th is recorded — keeps this at zero ongoing storage cost
+  const MATCH_HISTORY_MAX = 20; // oldest entry drops off once a 21st is recorded — still zero server cost either way, just more room since it's local-only
 
-  // Recorded once per finished match, on THIS device only — there's no
-  // server-side match history at all, by design, to avoid the exact
-  // "wastes space" problem raised about persistent feedback storage.
-  // hostSecret is only kept when this device was the host, and only so
-  // the Games Dashboard can action a later rematch request without
-  // needing a live session — it's the same secret this device already
-  // legitimately held in memory for the match, just kept a bit longer.
-  function recordMatchHistory(scores, eliminated, survivor) {
+  function pushToMatchHistory(entry) {
     try {
-      const isElimination = WS.eliminationMode;
-      const myScore = scores[WS.myName] || { correct: 0, answered: 0 };
-      const opponents = (WS.turnOrder || []).filter(n => n !== WS.myName);
-      const entry = {
-        code: WS.code, mode: WS.contentMode, eliminationMode: isElimination,
-        opponents, myScore,
-        won: isElimination ? survivor === WS.myName : undefined,
-        wasHost: WS.isHost, hostSecret: WS.isHost ? WS.hostSecret : undefined,
-        at: Date.now(),
-      };
       let history = [];
       try { history = JSON.parse(localStorage.getItem(MATCH_HISTORY_KEY) || '[]'); } catch (e) { history = []; }
       history.unshift(entry);
       if (history.length > MATCH_HISTORY_MAX) history = history.slice(0, MATCH_HISTORY_MAX);
       localStorage.setItem(MATCH_HISTORY_KEY, JSON.stringify(history));
     } catch (err) { /* localStorage unavailable — history just won't be recorded, not fatal */ }
+  }
+
+  // Recorded once per finished MULTIPLAYER match, on THIS device only —
+  // there's no server-side match history at all, by design, to avoid the
+  // exact "wastes space" problem raised about persistent feedback storage.
+  // hostSecret is only kept when this device was the host, and only so
+  // the Games Dashboard can action a later rematch request without
+  // needing a live session — it's the same secret this device already
+  // legitimately held in memory for the match, just kept a bit longer.
+  function recordMatchHistory(scores, eliminated, survivor) {
+    const isElimination = WS.eliminationMode;
+    const myScore = scores[WS.myName] || { correct: 0, answered: 0 };
+    const opponents = (WS.turnOrder || []).filter(n => n !== WS.myName);
+    pushToMatchHistory({
+      type: 'multiplayer',
+      code: WS.code, mode: WS.contentMode, eliminationMode: isElimination,
+      opponents, myScore,
+      won: isElimination ? survivor === WS.myName : undefined,
+      wasHost: WS.isHost, hostSecret: WS.isHost ? WS.hostSecret : undefined,
+      at: Date.now(),
+    });
+  }
+
+  // Recorded once per finished SINGLE-PLAYER round, from the one shared
+  // completion screen every game already funnels through (renderGameResults)
+  // — so this covers all 8 games without needing a separate hook in each.
+  function recordSinglePlayerHistory(pct) {
+    pushToMatchHistory({
+      type: 'single',
+      kind: G.kind, subject: G.subject || null, isLive: !!G.isLive,
+      score: G.score, attempted: G.attempted, pct, bestStreak: G.bestStreak,
+      at: Date.now(),
+    });
   }
 
   function renderWSResults(scores, eliminated, survivor) {
@@ -3046,8 +3089,9 @@
 
   // ──────────── GAMES DASHBOARD (local match history) ────────────
   // Opened on demand from the Games Hub — reads the small local history
-  // recorded above and, for the most recently HOSTED match, checks once
-  // (not a background poll) for any pending rematch request so a host who
+  // recorded above (both single-player rounds and multiplayer matches)
+  // and, for the most recently HOSTED multiplayer match, checks once (not
+  // a background poll) for any pending rematch request so a host who
   // already left the Results screen can still act on it later.
   function openGamesDashboard() {
     ensureUser(() => {
@@ -3055,24 +3099,38 @@
       try { history = JSON.parse(localStorage.getItem(MATCH_HISTORY_KEY) || '[]'); } catch (e) { history = []; }
       document.getElementById('wsChallengeBody').innerHTML = `
         <h3 class="sheet-title" style="text-align:center;">🕹 Recent Games</h3>
-        <p class="sheet-sub" style="text-align:center; font-size:.78rem;">Your last ${MATCH_HISTORY_MAX} multiplayer matches on this device.</p>
+        <p class="sheet-sub" style="text-align:center; font-size:.78rem;">Your last ${MATCH_HISTORY_MAX} games on this device — solo and multiplayer.</p>
         <div id="gdHistoryList" style="margin-top:.8rem;">
-          ${history.length === 0 ? `<div class="lib-empty">No multiplayer matches yet — start one from Games!</div>` : history.map(renderHistoryRow).join('')}
+          ${history.length === 0 ? `<div class="lib-empty">No games yet — jump into one from Games!</div>` : history.map(renderHistoryRow).join('')}
         </div>
       `;
       document.getElementById('wsChallengeModal').classList.remove('hidden');
-      const lastHosted = history.find(h => h.wasHost && h.hostSecret);
+      const lastHosted = history.find(h => h.type === 'multiplayer' && h.wasHost && h.hostSecret);
       if (lastHosted) checkDashboardRematchRequests(lastHosted, history);
     });
   }
 
   function renderHistoryRow(h) {
+    const when = new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    if (h.type === 'single') {
+      const gameNames = { tf: 'True or False Blitz', sort: 'Category Sort', sequence: 'Sequence', scramble: 'Word Scramble',
+        formula: 'Formula Rush', equation: 'Equation Builder', memory: 'Memory Match', speed: 'Speed Round' };
+      const gameLabel = gameNames[h.kind] || h.kind;
+      return `
+        <div style="padding:.7rem .9rem; background:var(--cream-w); border-radius:var(--r-m); margin-bottom:.5rem;">
+          <div style="display:flex; justify-content:space-between; font-weight:700; font-size:.85rem;">
+            <span>${safe(gameLabel)}</span><span style="font-weight:400; color:var(--text-dim); font-size:.75rem;">${when}</span>
+          </div>
+          <div style="font-size:.78rem; color:var(--text-dim); margin-top:.15rem;">🧑 Solo${h.isLive ? ' · AI Live' : ''}${h.subject ? ' · ' + safe(SUBJECT_LABELS[h.subject] || h.subject) : ''}</div>
+          <div style="font-size:.82rem; margin-top:.25rem;">${h.score} pts · ${h.pct}% accuracy${h.bestStreak ? ` · best streak ${h.bestStreak}` : ''}</div>
+        </div>
+      `;
+    }
     const gameLabel = h.mode === 'categorySort' ? 'Category Sort' : 'Word Scramble';
     const modeLabel = h.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Round-robin';
     const resultLabel = h.eliminationMode
       ? (h.won ? '🏆 You won' : '💀 Eliminated')
       : `${h.myScore.correct}/${h.myScore.answered} correct`;
-    const when = new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     return `
       <div style="padding:.7rem .9rem; background:var(--cream-w); border-radius:var(--r-m); margin-bottom:.5rem;">
         <div style="display:flex; justify-content:space-between; font-weight:700; font-size:.85rem;">
@@ -4123,6 +4181,7 @@
   }
 
   function renderGameResults(pct) {
+    recordSinglePlayerHistory(pct);
     const body = document.getElementById('gameResultsBody');
     const gameTitle = G.kind === 'tf' ? '✓✗ True or False Blitz' : G.kind === 'sort' ? '🗂 Category Sort'
       : G.kind === 'sequence' ? '🔢 Sequence' : G.kind === 'scramble' ? '🔤 Word Scramble'
