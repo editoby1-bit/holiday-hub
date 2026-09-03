@@ -2270,7 +2270,7 @@
     ensureUser(() => {
       WS = {
         code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, contentMode,
-        pollTimer: null, itemTimer: null, secsLeft: 0,
+        pollTimer: null, itemTimer: null, waitCountdownTimer: null, secsLeft: 0,
         itemSeconds: (contentMode === 'categorySort' ? WS_SORT_SECONDS_PRESETS.standard : WS_WORD_SECONDS_PRESETS.standard),
         words: [], items: [], bucketSubjects: [],
         turnOrder: [], scores: {}, itemIndex: 0, totalItems: 0, turnStartedAt: null,
@@ -2285,6 +2285,7 @@
   function closeWSModal() {
     if (WS && WS.pollTimer) clearInterval(WS.pollTimer);
     if (WS && WS.itemTimer) clearInterval(WS.itemTimer);
+    if (WS && WS.waitCountdownTimer) clearInterval(WS.waitCountdownTimer);
     if (WS && WS.rematchWatchTimer) clearInterval(WS.rematchWatchTimer);
     if (WS && WS.hostRematchPollTimer) clearInterval(WS.hostRematchPollTimer);
     if (WS && WS.reactionWatchTimer) clearInterval(WS.reactionWatchTimer);
@@ -2584,6 +2585,7 @@
   }
 
   function renderWSWaitingFor(status) {
+    clearInterval(WS.waitCountdownTimer); // always replace, never stack — this fires on every poll
     const turnOrder = status.turnOrder || WS.turnOrder;
     const currentTurn = status.currentTurn;
     const iAmOut = WS.eliminationMode && !!(WS.eliminated || {})[WS.myName];
@@ -2592,15 +2594,34 @@
     const progressLine = WS.eliminationMode
       ? `⚔️ ${turnOrder.length - Object.keys(WS.eliminated || {}).length} still standing`
       : `Item ${(WS.itemIndex || 0) + 1} of ${WS.totalItems || '?'}`;
+    // A real ticking countdown, seeded from the server's own secsRemaining
+    // (never this device's clock — same reasoning as the rescue-timing
+    // fix) so the waiting screen visibly moves between polls instead of
+    // sitting static for up to WS_POLL_MS at a time.
+    const startSecs = Number.isFinite(status.secsRemaining) ? Math.max(0, Math.ceil(status.secsRemaining)) : null;
     document.getElementById('wsChallengeBody').innerHTML = `
       <h3 class="sheet-title" style="text-align:center;">${WS.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Live Scoreboard'}</h3>
       <p class="sheet-sub" style="text-align:center; font-weight:700;">${progressLine} — match in progress</p>
       ${renderWSTurnStrip(turnOrder, currentTurn, status.scores || {}, WS.eliminated)}
       ${iAmOut
         ? `<div class="ws-turn-badge">👀 You're out — watching the rest of the match play out.</div>`
-        : `<div class="ws-turn-badge">⏳ Waiting for ${safe(currentTurn || 'the next player')}'s turn…</div>`}
+        : `
+        <div style="text-align:center; padding:1rem; margin:.6rem 0; border-radius:var(--r-l); background:var(--cream-w); border:1px solid var(--border);">
+          <div style="font-size:.78rem; color:var(--text-dim); margin-bottom:.2rem;">Current turn</div>
+          <div style="font-weight:700; font-size:1.15rem;">${safe(currentTurn || '…')}</div>
+          ${startSecs !== null ? `<div class="ws-timer" id="wsWaitCountdown" style="margin-top:.3rem;">${startSecs}s</div>` : ''}
+        </div>`}
       <p class="sheet-sub" style="text-align:center; font-size:.72rem;">This updates automatically — no need to refresh.</p>
     `;
+    if (startSecs !== null && !iAmOut) {
+      let n = startSecs;
+      WS.waitCountdownTimer = setInterval(() => {
+        n = Math.max(0, n - 1);
+        const el = document.getElementById('wsWaitCountdown');
+        if (el) el.textContent = n + 's';
+        if (n <= 0) clearInterval(WS.waitCountdownTimer); // next poll (≤WS_POLL_MS away) reseeds it correctly either way
+      }, 1000);
+    }
   }
 
   function startMyWSItem() {
