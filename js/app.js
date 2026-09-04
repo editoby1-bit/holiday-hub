@@ -140,7 +140,7 @@
       email,
       amount: GAMES_PASS_PRICE_KOBO,
       currency: 'NGN',
-      ref: 'HH-GP-' + Date.now(),
+      ref: 'MSA-GP-' + Date.now(),
       metadata: { custom_fields: [
         { display_name: 'Product', variable_name: 'product', value: 'My Study App — 7-Day Games Pass' },
       ]},
@@ -182,7 +182,7 @@
       email,
       amount: GAMES_TOPUP_PRICE_KOBO,
       currency: 'NGN',
-      ref: 'HH-GT-' + Date.now(),
+      ref: 'MSA-GT-' + Date.now(),
       metadata: { custom_fields: [
         { display_name: 'Product', variable_name: 'product', value: `My Study App — +${GAMES_TOPUP_ROUNDS} Game Rounds` },
       ]},
@@ -4626,7 +4626,7 @@
 
   function generateChallengeCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = 'HH-';
+    let code = 'MSA-';
     for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
     return code;
   }
@@ -5260,7 +5260,7 @@
       email,
       amount: AI_CREDIT_PACK_PRICE_KOBO,
       currency: 'NGN',
-      ref: 'HH-AI-' + Date.now(),
+      ref: 'MSA-AI-' + Date.now(),
       metadata: { custom_fields: [
         { display_name: 'Product', variable_name: 'product', value: 'My Study App — 2-Day AI Boost (10 credits)' },
       ]},
