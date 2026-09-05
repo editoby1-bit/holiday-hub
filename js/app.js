@@ -796,6 +796,8 @@
       document.getElementById('gameExplainerModal').classList.add('hidden');
       if (!_pendingGame) return;
       if (_pendingGame.mode === 'sort') openCategorySortChallengeSetup();
+      else if (_pendingGame.mode === 'formula') openFormulaRushChallengeSetup(_pendingGame.subject);
+      else if (_pendingGame.mode === 'sequence') openSequenceChallengeSetup();
       else openWordScrambleChallengeSetup(_pendingGame.subject);
     });
   }
@@ -816,9 +818,10 @@
       subjectLine.classList.remove('hidden');
     }
     document.getElementById('geRules').innerHTML = info.rules.map(r => `<li>${r}</li>`).join('');
-    // Multiplayer is wired up for Word Scramble and Category Sort — hidden
-    // for every other mode until the same pattern extends to them.
-    document.getElementById('geMultiplayerBtn').style.display = (mode === 'scramble' || mode === 'sort') ? '' : 'none';
+    // Multiplayer is wired up for Word Scramble, Category Sort, Formula
+    // Rush, and Sequence — hidden for the remaining modes until the same
+    // pattern extends to them too.
+    document.getElementById('geMultiplayerBtn').style.display = ['scramble', 'sort', 'formula', 'sequence'].includes(mode) ? '' : 'none';
     document.getElementById('gameExplainerModal').classList.remove('hidden');
   }
 
@@ -2233,8 +2236,10 @@
   ──────────────────────────────── */
   const WS_WORD_SECONDS_PRESETS = { quick: 10, standard: 15, marathon: 25 };
   const WS_SORT_SECONDS_PRESETS = { quick: 5, standard: 8, marathon: 15 };
+  const WS_MCQ_SECONDS_PRESETS = { quick: 8, standard: 12, marathon: 20 };
   const WS_WORDS_PER_MATCH = 8;
   const WS_SORT_ITEMS_PER_MATCH = 12;
+  const WS_MCQ_ITEMS_PER_MATCH = 15;
   const WS_POLL_MS = 2500;
   const WS_RESCUE_GRACE_MS = 5000; // matches the server's own grace window
   let WS = null;
@@ -2245,6 +2250,14 @@
 
   function openCategorySortChallengeSetup() {
     openMultiplayerSetup('categorySort', null);
+  }
+
+  function openFormulaRushChallengeSetup(subjectKey) {
+    openMultiplayerSetup('mcq', subjectKey, false, 'formula');
+  }
+
+  function openSequenceChallengeSetup() {
+    openMultiplayerSetup('mcq', null, false, 'sequence'); // no subject concept — always mixed, matching the single-player game
   }
 
   // Standalone "Last Man Standing" category — shows only the games that
@@ -2258,11 +2271,15 @@
         <p class="sheet-sub" style="text-align:center;">Pick a game — answer wrong or miss the clock and you're out. Last player standing wins.</p>
         <button class="btn btn-primary btn-block" id="lmsPickSort" style="margin-top:1rem;">🗂 Category Sort</button>
         <button class="btn btn-primary btn-block" id="lmsPickScramble" style="margin-top:.6rem;">🔤 Word Scramble</button>
+        <button class="btn btn-primary btn-block" id="lmsPickFormula" style="margin-top:.6rem;">🧮 Formula Rush</button>
+        <button class="btn btn-primary btn-block" id="lmsPickSequence" style="margin-top:.6rem;">🔢 Sequence</button>
         <p class="sheet-sub" style="text-align:center; font-size:.72rem; margin-top:1rem;">More games are joining Last Man Standing soon.</p>
       `;
       document.getElementById('wsChallengeModal').classList.remove('hidden');
       document.getElementById('lmsPickSort').addEventListener('click', () => openMultiplayerSetup('categorySort', null, true));
       document.getElementById('lmsPickScramble').addEventListener('click', () => openMultiplayerSetup('scramble', null, true));
+      document.getElementById('lmsPickFormula').addEventListener('click', () => openMultiplayerSetup('mcq', null, true, 'formula'));
+      document.getElementById('lmsPickSequence').addEventListener('click', () => openMultiplayerSetup('mcq', null, true, 'sequence'));
     });
   }
 
@@ -2278,7 +2295,7 @@
   function saveActiveMatchPointer() {
     try {
       localStorage.setItem(ACTIVE_MATCH_KEY, JSON.stringify({
-        code: WS.code, myName: WS.myName, contentMode: WS.contentMode,
+        code: WS.code, myName: WS.myName, contentMode: WS.contentMode, mcqKind: WS.mcqKind || null,
         isHost: WS.isHost, hostSecret: WS.isHost ? WS.hostSecret : undefined,
       }));
     } catch (err) { /* not fatal — rejoin just won't be offered later if this fails */ }
@@ -2305,12 +2322,13 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!data.ok || data.ended) { clearActiveMatchPointer(); return; } // match is over — nothing to rejoin
-      const gameLabel = pointer.contentMode === 'categorySort' ? 'Category Sort' : 'Word Scramble';
+      const gameNames = { categorySort: 'Category Sort', scramble: 'Word Scramble', formula: 'Formula Rush', sequence: 'Sequence' };
+      const gameLabel = pointer.contentMode === 'mcq' ? gameNames[pointer.mcqKind] : gameNames[pointer.contentMode];
       const banner = document.createElement('div');
       banner.id = 'gamesHubRejoinBanner';
       banner.style.cssText = 'margin:0 0 1rem; padding:.9rem; background:var(--coral-pale); border:1px solid var(--coral); border-radius:var(--r-m);';
       banner.innerHTML = `
-        <p style="font-weight:700; font-size:.88rem;">🔴 You have a ${safe(gameLabel)} match in progress</p>
+        <p style="font-weight:700; font-size:.88rem;">🔴 You have a ${safe(gameLabel || 'multiplayer')} match in progress</p>
         <button class="btn btn-primary btn-block" id="gamesHubRejoinBtn" style="margin-top:.5rem;">Rejoin match</button>
       `;
       const container = document.querySelector('#gamesHubScreen .container');
@@ -2329,7 +2347,7 @@
     ensureUser(() => {
       WS = {
         code: pointer.code, hostSecret: pointer.hostSecret || null, isHost: !!pointer.isHost,
-        myName: pointer.myName || S.currentUser, subjectKey: null, contentMode: pointer.contentMode,
+        myName: pointer.myName || S.currentUser, subjectKey: null, contentMode: pointer.contentMode, mcqKind: pointer.mcqKind || null,
         pollTimer: null, itemTimer: null, waitCountdownTimer: null, secsLeft: 0,
         itemSeconds: WS_WORD_SECONDS_PRESETS.standard, // corrected by the first poll below
         words: [], items: [], bucketSubjects: [],
@@ -2382,12 +2400,14 @@
     }
   }
 
-  function openMultiplayerSetup(contentMode, subjectKey, eliminationMode) {
+  function openMultiplayerSetup(contentMode, subjectKey, eliminationMode, mcqKind) {
     ensureUser(() => {
+      const defaultSecs = contentMode === 'categorySort' ? WS_SORT_SECONDS_PRESETS.standard
+        : contentMode === 'mcq' ? WS_MCQ_SECONDS_PRESETS.standard : WS_WORD_SECONDS_PRESETS.standard;
       WS = {
-        code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, contentMode,
+        code: null, hostSecret: null, isHost: false, myName: S.currentUser, subjectKey, contentMode, mcqKind: mcqKind || null,
         pollTimer: null, itemTimer: null, waitCountdownTimer: null, secsLeft: 0,
-        itemSeconds: (contentMode === 'categorySort' ? WS_SORT_SECONDS_PRESETS.standard : WS_WORD_SECONDS_PRESETS.standard),
+        itemSeconds: defaultSecs,
         words: [], items: [], bucketSubjects: [],
         turnOrder: [], scores: {}, itemIndex: 0, totalItems: 0, turnStartedAt: null,
         answeredThisTurn: false,
@@ -2416,10 +2436,14 @@
 
   function renderWSSetup() {
     const isSort = WS.contentMode === 'categorySort';
-    const presets = isSort ? WS_SORT_SECONDS_PRESETS : WS_WORD_SECONDS_PRESETS;
+    const isMcq = WS.contentMode === 'mcq';
+    const presets = isSort ? WS_SORT_SECONDS_PRESETS : isMcq ? WS_MCQ_SECONDS_PRESETS : WS_WORD_SECONDS_PRESETS;
     const meta = WS.subjectKey ? subjectMeta(WS.subjectKey) : null;
-    const subjectLabel = isSort ? 'Mixed subjects' : (WS.subjectKey ? `${meta.icon} ${SUBJECT_LABELS[WS.subjectKey] || WS.subjectKey}` : 'Mixed subjects');
-    const gameLabel = isSort ? 'Category Sort' : 'Word Scramble';
+    // Sequence has no subject concept at all (always mixed, procedurally
+    // generated) — same as the single-player game's own picker-less flow.
+    const subjectLabel = (isSort || (isMcq && WS.mcqKind === 'sequence')) ? 'Mixed subjects'
+      : (WS.subjectKey ? `${meta.icon} ${SUBJECT_LABELS[WS.subjectKey] || WS.subjectKey}` : 'Mixed subjects');
+    const gameLabel = isSort ? 'Category Sort' : isMcq ? (WS.mcqKind === 'sequence' ? 'Sequence' : 'Formula Rush') : 'Word Scramble';
     const title = WS.eliminationMode ? `⚔️ Last Man Standing — ${gameLabel}` : `🔀 Multiplayer ${gameLabel}`;
     const subtitle = WS.eliminationMode
       ? `${subjectLabel} — answer wrong or miss the clock and you're out. Last player standing wins.`
@@ -2468,6 +2492,7 @@
 
   async function createWSChallenge() {
     const isSort = WS.contentMode === 'categorySort';
+    const isMcq = WS.contentMode === 'mcq';
     const code = generateChallengeCode();
     let payload;
 
@@ -2481,6 +2506,31 @@
       WS.bucketSubjects = bucketSubjects;
       WS.items = items;
       payload = { action: 'create', code, mode: 'categorySort', items, bucketSubjects, creator: WS.myName, syncMode: 'ready', itemSeconds: WS.itemSeconds, eliminationMode: WS.eliminationMode };
+    } else if (isMcq) {
+      let mcqQueue;
+      if (WS.mcqKind === 'sequence') {
+        const usedQuestions = new Set();
+        mcqQueue = [];
+        for (let i = 0; i < WS_MCQ_ITEMS_PER_MATCH; i++) mcqQueue.push(generateSequenceItem(usedQuestions));
+      } else {
+        const isMixed = WS.subjectKey === null;
+        let formulas = isMixed ? formulasMixed(S.category) : formulasFor(S.category, WS.subjectKey);
+        if (!isMixed && formulas.length < 6) formulas = formulasMixed(S.category);
+        if (formulas.length < 4) {
+          showToast('Not enough formula sheet content yet for multiplayer Formula Rush.');
+          return;
+        }
+        const pool = formulasMixed(S.category);
+        mcqQueue = buildFormulaQueue(formulas.slice(0, WS_MCQ_ITEMS_PER_MATCH), pool);
+      }
+      // Reduce each single-player-shaped item ({question, options, answer
+      // index}) down to what the server needs to grade independently:
+      // the question, the options everyone sees, and the correct option's
+      // own TEXT (compared directly, not by index — matches the same
+      // string-comparison pattern Category Sort already uses).
+      const items = mcqQueue.map(q => ({ question: q.question, options: q.options, correctText: q.options[q.answer] }));
+      WS.items = items;
+      payload = { action: 'create', code, mode: 'mcq', mcqKind: WS.mcqKind, items, creator: WS.myName, subject: WS.subjectKey, syncMode: 'ready', itemSeconds: WS.itemSeconds, eliminationMode: WS.eliminationMode };
     } else {
       const pool = WS.subjectKey ? scrambleWordsFor(S.category, WS.subjectKey) : scrambleWordsMixed(S.category);
       if (pool.length < 4) {
@@ -2527,10 +2577,10 @@
         renderWSSetup();
         return;
       }
-      if (data.challenge.contentMode !== WS.contentMode) {
-        showToast(WS.contentMode === 'categorySort'
-          ? 'That code is for a different kind of challenge, not Category Sort.'
-          : 'That code is for a different kind of challenge, not Word Scramble.');
+      if (data.challenge.contentMode !== WS.contentMode || (WS.contentMode === 'mcq' && data.challenge.mcqKind !== WS.mcqKind)) {
+        const gameNames = { categorySort: 'Category Sort', scramble: 'Word Scramble', formula: 'Formula Rush', sequence: 'Sequence' };
+        const wantedName = WS.contentMode === 'mcq' ? gameNames[WS.mcqKind] : gameNames[WS.contentMode];
+        showToast(`That code is for a different kind of challenge, not ${wantedName}.`);
         renderWSSetup();
         return;
       }
@@ -2541,6 +2591,9 @@
       if (WS.contentMode === 'categorySort') {
         WS.items = data.challenge.items || [];
         WS.bucketSubjects = data.challenge.bucketSubjects || [];
+      } else if (WS.contentMode === 'mcq') {
+        WS.items = data.challenge.items || [];
+        WS.mcqKind = data.challenge.mcqKind || WS.mcqKind;
       } else {
         WS.words = data.challenge.words || [];
       }
@@ -2682,6 +2735,7 @@
       if (data.words) WS.words = data.words;
       if (data.items) WS.items = data.items;
       if (data.bucketSubjects) WS.bucketSubjects = data.bucketSubjects;
+      if (data.mcqKind) WS.mcqKind = data.mcqKind;
 
       if (data.ended) {
         clearInterval(WS.pollTimer); WS.pollTimer = null;
@@ -2795,6 +2849,7 @@
   function startMyWSItem() {
     WS.answeredThisTurn = false;
     if (WS.contentMode === 'categorySort') playMyWSSortItem();
+    else if (WS.contentMode === 'mcq') playMyWSMcqItem();
     else playMyWSWordItem();
   }
 
@@ -2884,7 +2939,51 @@
     }, 1000);
   }
 
-  // Overlays the result ON TOP of the question screen that's still visible
+  // Shared turn UI for both Formula Rush and Sequence — identical shape
+  // ({question, options, correctText}), differing only in mcqKind, which
+  // only affects the label ("Formula" vs "Item") shown above the question.
+  function playMyWSMcqItem() {
+    const item = WS.items[WS.itemIndex];
+    if (!item) { startWSPolling(); return; }
+    WS.secsLeft = WS.itemSeconds;
+    const unitLabel = WS.mcqKind === 'sequence' ? 'Pattern' : 'Formula';
+
+    document.getElementById('wsChallengeBody').innerHTML = `
+      ${renderWSTurnStrip(WS.turnOrder, WS.myName, WS.scores, WS.eliminated)}
+      <div class="ws-turn-badge">✨ Your turn! ${unitLabel} ${WS.itemIndex + 1} of ${WS.totalItems}</div>
+      <div class="ws-timer" id="wsTimerDisplay">${WS.secsLeft}s</div>
+      <div class="ws-word-display">${safe(item.question)}</div>
+      <div class="sort-buckets" id="wsMcqOptions">
+        ${item.options.map((opt, i) => `<button class="sort-bucket" data-option="${i}">
+          <span class="sort-bucket-label">${safe(opt)}</span>
+        </button>`).join('')}
+      </div>
+    `;
+
+    const submit = (guessText) => {
+      if (WS.answeredThisTurn) return;
+      WS.answeredThisTurn = true;
+      clearInterval(WS.itemTimer);
+      document.querySelectorAll('#wsMcqOptions .sort-bucket').forEach(b => {
+        b.disabled = true;
+        if (b.dataset.chosen) b.style.opacity = '.6';
+      });
+      submitWSItemAnswer(WS.myName, guessText, false);
+    };
+
+    document.querySelectorAll('#wsMcqOptions .sort-bucket').forEach((btn, i) => {
+      btn.addEventListener('click', () => { btn.dataset.chosen = '1'; submit(item.options[i]); });
+    });
+
+    clearInterval(WS.itemTimer);
+    WS.itemTimer = setInterval(() => {
+      WS.secsLeft--;
+      const timerEl = document.getElementById('wsTimerDisplay');
+      if (timerEl) timerEl.textContent = WS.secsLeft + 's';
+      if (WS.secsLeft <= 0) { clearInterval(WS.itemTimer); submit(''); }
+    }, 1000);
+  }
+
   // underneath (word/term, disabled input, turn strip) — this is what
   // keeps it feeling like the SAME match continuing, not a jump to a
   // different "did this end?" screen. Shows who's up next and their
@@ -2990,7 +3089,7 @@
     const opponents = (WS.turnOrder || []).filter(n => n !== WS.myName);
     pushToMatchHistory({
       type: 'multiplayer',
-      code: WS.code, mode: WS.contentMode, eliminationMode: isElimination,
+      code: WS.code, mode: WS.contentMode, mcqKind: WS.mcqKind || undefined, eliminationMode: isElimination,
       opponents, myScore,
       won: isElimination ? survivor === WS.myName : undefined,
       wasHost: WS.isHost, hostSecret: WS.isHost ? WS.hostSecret : undefined,
@@ -3268,7 +3367,8 @@
         </div>
       `;
     }
-    const gameLabel = h.mode === 'categorySort' ? 'Category Sort' : 'Word Scramble';
+    const mcqNames = { formula: 'Formula Rush', sequence: 'Sequence' };
+    const gameLabel = h.mode === 'categorySort' ? 'Category Sort' : h.mode === 'mcq' ? (mcqNames[h.mcqKind] || 'Formula/Sequence') : 'Word Scramble';
     const modeLabel = h.eliminationMode ? '⚔️ Last Man Standing' : '🔀 Round-robin';
     const resultLabel = h.eliminationMode
       ? (h.won ? '🏆 You won' : '💀 Eliminated')
@@ -3309,7 +3409,7 @@
       list.prepend(banner);
       banner.querySelectorAll('.gd-approve-btn').forEach(btn => btn.addEventListener('click', () => {
         ensureUser(() => {
-          openMultiplayerSetup(entry.mode, null, entry.eliminationMode);
+          openMultiplayerSetup(entry.mode, null, entry.eliminationMode, entry.mcqKind);
           proposeRematch(entry.code, entry.hostSecret);
         });
       }));
